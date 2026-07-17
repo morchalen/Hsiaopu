@@ -409,14 +409,14 @@ class ChatViewModel @Inject constructor(
         // while (true) 是个无限循环——每 5 秒检查一次有没有联网。
         // ConnectivityManager 是系统自带的"网络管家"。
         // getNetworkCapabilities(it) 检查当前网络的能力（能不能上网）。
-        viewModelScope.launch {
-            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-            while (true) {
-                val caps = cm?.activeNetwork?.let { cm.getNetworkCapabilities(it) }
-                _uiState.update { it.copy(isOnline = caps != null) }
-                kotlinx.coroutines.delay(5000)  // 等 5 秒再检查一次
-            }
-        }
+//        viewModelScope.launch {
+//            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+//            while (true) {
+//                val caps = cm?.activeNetwork?.let { cm.getNetworkCapabilities(it) }
+//                _uiState.update { it.copy(isOnline = caps != null) }
+//                kotlinx.coroutines.delay(5000)  // 等 5 秒再检查一次
+//            }
+//        }
     }
 
     // ==========================================================================
@@ -564,8 +564,7 @@ class ChatViewModel @Inject constructor(
         return "\"" + s.replace("\\", "\\\\")   // 把 \ 变成 \\
             .replace("\"", "\\\"")              // 把 " 变成 "
             .replace("\n", "\\n")               // 把换行变成 \n
-            .replace("\r", "\\r")               // 把回车变成 \r
-            + "\""
+            .replace("\r", "\\r") + "\""          // 把回车变成 \r
     }
 
     // ==========================================================================
@@ -694,9 +693,9 @@ class ChatViewModel @Inject constructor(
 
         // ===== 安全检查 3：网络检查 =====
         // 如果没联网，提示用户，但消息还是可以发出去（后面会排队）。
-        if (!_uiState.value.isOnline) {
-            _uiState.update { it.copy(error = "网络不可用，消息将在联网后发送") }
-        }
+//        if (!_uiState.value.isOnline) {
+//            _uiState.update { it.copy(error = "网络不可用，消息将在联网后发送") }
+//        }
 
         // ===== 安全检查 4：如果没有选对话，自动创建一个 =====
         if (convId == null) {

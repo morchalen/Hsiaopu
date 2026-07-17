@@ -9,7 +9,8 @@ import javax.inject.Singleton
 @Singleton//只创建一次，全局只有一个实例。
 class ShellCommandBus @Inject constructor() {    //_xxx是意思是:xxx是私有的，是一个命名的规范
     //定义一个_的私有的热流，用于发送命令
-    private val _commands = MutableSharedFlow<String>(replay = 1, extraBufferCapacity = 20)
+    private val _commands = MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 20)
+    // bug修复记录，因为这里之前的replay = 1，每次重新连接可以看到上一条历史指令记录发过去，所以会导致命令重复发送，所以这里改成了replay = 0，避免重复发送
     //定义一个公开的热流，使用asSharedFlow() 变成只读的流
     public val commands = _commands.asSharedFlow()//也就是把这个可读写的流变成只读的流暴露给外部使用
     

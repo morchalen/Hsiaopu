@@ -2,8 +2,6 @@ package com.example.hsiaopu.di
 
 import android.content.Context
 import androidx.room.Room
-import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.hsiaopu.data.local.AppDatabase
 import com.example.hsiaopu.data.local.ConversationDao
 import com.example.hsiaopu.data.local.MessageDao
@@ -15,25 +13,15 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
+/**
+ * 数据库依赖注入模块
+ * 作用：告诉 Hilt 如何创建数据库和 DAO 对象
+ */
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
 
-    private val MIGRATION_1_2 = object : Migration(1, 2) {
-        override fun migrate(database: SupportSQLiteDatabase) {
-            database.execSQL("""
-                CREATE TABLE IF NOT EXISTS shell_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                    command TEXT NOT NULL,
-                    stdout TEXT NOT NULL,
-                    stderr TEXT NOT NULL,
-                    exitCode INTEGER NOT NULL DEFAULT -1,
-                    timestamp INTEGER NOT NULL
-                )
-            """.trimIndent())
-        }
-    }
-
+    // 提供 AppDatabase 实例，整个 App 只有一个实例（单例）
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -41,16 +29,18 @@ object DatabaseModule {
             context,
             AppDatabase::class.java,
             "hsiaopu_db"
-        ).addMigrations(MIGRATION_1_2)
-         .build()
+        ).build()  // ← 没有 addMigrations，直接 build
     }
 
+    // 提供 ConversationDao
     @Provides
     fun provideConversationDao(db: AppDatabase): ConversationDao = db.conversationDao()
 
+    // 提供 MessageDao
     @Provides
     fun provideMessageDao(db: AppDatabase): MessageDao = db.messageDao()
 
+    // 提供 ShellHistoryDao
     @Provides
     fun provideShellHistoryDao(db: AppDatabase): ShellHistoryDao = db.shellHistoryDao()
 }

@@ -83,7 +83,7 @@ fun ShellScreen(
     var smartGenerateInput by remember { mutableStateOf("") } // 智能生成输入文本
     var smartGenerateError by remember { mutableStateOf("") } // 智能生成错误信息
 
-    var isInterpreting by remember { mutableStateOf(false) } // AI 解读中
+    var isInterpreting by remember { mutableStateOf(false) } // 解读中
 
     val shizukuAvailable = remember { mutableStateOf(ShizukuHelper.isAvailable()) } // Shizuku 是否可用
     val shizukuPermission = remember { mutableStateOf(ShizukuHelper.hasPermission()) } // Shizuku 是否有权限
@@ -150,7 +150,7 @@ fun ShellScreen(
                         onClick = {
                             scope.launch {
                                 val lastResult = history.lastOrNull()
-                                if (lastResult != null && lastResult.command != "[AI 解读]") {
+                                if (lastResult != null && lastResult.command != "[解读]") {
                                     isInterpreting = true
                                     try {
                                         val messages = listOf(
@@ -159,7 +159,7 @@ fun ShellScreen(
                                         )
                                         val interpretation = aiProviderRegistry.sendMessage(appSettings.providerId, messages, appSettings)
                                         val interpretationResult = ShellResult(
-                                            command = "[AI 解读]",
+                                            command = "[解读]",
                                             stdout = interpretation,
                                             stderr = "",
                                             exitCode = 0
@@ -168,7 +168,7 @@ fun ShellScreen(
                                         shellHistoryRepository.insertHistory(interpretationResult)
                                     } catch (e: Exception) {
                                         val errorResult = ShellResult(
-                                            command = "[AI 解读]",
+                                            command = "[解读]",
                                             stdout = "",
                                             stderr = "解读失败: ${e.message}",
                                             exitCode = -1
@@ -571,6 +571,9 @@ private fun TerminalOutputBlock(
                 modifier = Modifier.padding(top = 4.dp)
             )
         }
+        
+        // 空白行分隔
+        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
