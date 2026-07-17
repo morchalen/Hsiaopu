@@ -144,7 +144,7 @@ fun ShellScreen(
                         }
                     }
                 },
-                actions = {
+                actions = {//右侧的按钮
                     // AI 智能解读按钮
                     IconButton(
                         onClick = {
@@ -469,8 +469,7 @@ fun ShellScreen(
     }
 }
 
-/**
- * 封装的执行逻辑
+/*封装的执行逻辑
  * @param cmd 要执行的命令
  * @param onClearInput 执行成功后清空输入框
  * @param onRunningChanged 执行状态回调
