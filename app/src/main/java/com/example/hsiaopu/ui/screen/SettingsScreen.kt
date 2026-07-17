@@ -118,16 +118,7 @@ fun SettingsScreen(viewModel: ChatViewModel) {
                 )
             }
 
-            // ── Token Usage ──
-            if (uiState.tokenStats.totalTokens > 0) {
-                SettingsCard(title = stringResource(R.string.settings_token_usage)) {
-                    val stats = uiState.tokenStats
-                    SettingsRow(stringResource(R.string.settings_prompt_tokens), "${stats.promptTokens}")
-                    SettingsRow(stringResource(R.string.settings_completion_tokens), "${stats.completionTokens}")
-                    SettingsRow(stringResource(R.string.settings_total_tokens), "${stats.totalTokens}")
-                    SettingsRow(stringResource(R.string.settings_est_cost), "$${String.format("%.4f", stats.estimatedCost)}")
-                }
-            }
+
 
             // ── Appearance ──
             SettingsCard(title = stringResource(R.string.settings_appearance)) {

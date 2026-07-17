@@ -2,7 +2,7 @@ package com.example.hsiaopu.data.local
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-
+// 把 Kotlin 数据类（data class）标记为数据库里的一张表。
 @Entity(tableName = "conversations")// 定义数据库表名
 data class ConversationEntity(// 定义数据库实体类，是数据类
     // 主键，自动递增
