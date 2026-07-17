@@ -63,7 +63,7 @@ class SettingsDataStore @Inject constructor(
      */
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
         AppSettings(
-            apiKey = prefs[KEY_API_KEY] ?: "sk-fad9ba893a764a909157d0426a1a6954",                              // 默认 API Key
+            apiKey = prefs[KEY_API_KEY] ?: "",                              // 默认 API Key
             apiEndpoint = prefs[KEY_API_ENDPOINT] ?: "https://api.deepseek.com/v1/chat/completions",        // 默认 DeepSeek API
             modelName = prefs[KEY_MODEL_NAME] ?: "deepseek-chat",                                           // 默认模型
             systemPrompt = prefs[KEY_SYSTEM_PROMPT] ?: "你是一个智能AI助手，请用简洁、专业的方式回答用户的问题。",  // 默认提示词
