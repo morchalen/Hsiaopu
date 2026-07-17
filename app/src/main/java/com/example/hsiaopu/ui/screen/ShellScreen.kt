@@ -225,17 +225,10 @@ fun ShellScreen(
                 state = listState,
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
-                item {
-                    Text(
-                        text = "Hsiaopu Shell [版本 1.0]\n提示: 轻触任意输出记录可一键复制全文。\n",
-                        color = warningColor,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                    )
-                }
-
                 // 使用 itemsIndexed 获取当前是第几个
+                //forEachIndexed 和 itemsIndexed 是同一个东西的不同叫法，
+                //遍历一个列表，并且同时获取每个元素在列表中的位置（索引）和元素本身。
+                //说白了就是一个遍历列表，同时获取每个元素的索引和元素本身。遍历history列表。
                 itemsIndexed(history) { index, result ->
                     // 核心逻辑：判断奇偶，分配淡淡的交替背景色
                     val isEven = index % 2 == 0
@@ -259,7 +252,7 @@ fun ShellScreen(
                 if (isRunning) {
                     item {
                         Text(
-                            text = "命令执行中，请稍候...",
+                            text = "命令执行中...",
                             color = warningColor,
                             fontFamily = FontFamily.Monospace,
                             fontSize = 13.sp,
@@ -500,18 +493,16 @@ private fun executeCommand(
     }
 }
 
-/**
- * 单条命令输出块（无边框，纯文本流体验）
- */
+//单条命令输出块（无边框，纯文本流体验）
 @Composable
 private fun TerminalOutputBlock(
-    result: ShellResult,
-    context: Context,
-    textColor: Color,
-    promptColor: Color,
-    errorColor: Color,
-    warningColor: Color,
-    backgroundColor: Color
+    result: ShellResult,//命令执行结果
+    context: Context,//上下文，用于获取系统服务
+    textColor: Color,//文本颜色
+    promptColor: Color,//提示颜色
+    errorColor: Color,//错误颜色
+    warningColor: Color,//警告颜色
+    backgroundColor: Color//背景颜色
 ) {
     // 点击复制输出内容到剪贴板
     Column(
@@ -519,14 +510,25 @@ private fun TerminalOutputBlock(
             .fillMaxWidth()
             .background(backgroundColor)
             .clickable {
-                val textToCopy = result.stdout.ifEmpty { result.stderr }
-                (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                    .setPrimaryClip(ClipData.newPlainText("shell_output", textToCopy))
+                //准备复制的内容
+                val textToCopy = result.stdout
+                .ifEmpty { result.stderr }//如果标准输出为空，就准备：错误输出
+                
+                //获取剪贴板服务。as 是 Kotlin 里的类型转换关键字:告诉编译器“我知道这个东西实际是什么类型，你就把它当作这个类型来用吧”。
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                //获取到的系统服务的类型是any?这个类型；需要转换为我们知晓的这个剪贴板类型；
+                //所以clipboard就是一个ClipboardManager类型的对象，我们可以调用它的setPrimaryClip方法来设置剪贴板内容的方法。
+                val clipData = ClipData.newPlainText("shell_output", textToCopy)//创建一个ClipData对象，用于存储要复制的内容
+                //setPrimaryClip把内容放到用户平时用的那个(主要)剪贴板里
+                // Primary：用户明确操作的，优先级最高，随时可以被用户下一次复制覆盖。
+                // Secondary：系统后台悄悄处理的，避免干扰用户当前正在使用的剪贴板内容。
+                clipboard.setPrimaryClip(clipData)
+                //弹窗提示
                 Toast.makeText(context, "已复制输出内容", Toast.LENGTH_SHORT).show()
             }
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
-        // 命令回显
+        // 显示发出去的命令
         Text(
             text = "$ ${result.command}",
             color = promptColor,
@@ -535,7 +537,7 @@ private fun TerminalOutputBlock(
             fontWeight = FontWeight.Bold
         )
         
-        // 标准输出
+        // 成功执行之后的输出
         if (result.stdout.isNotEmpty()) {
             Text(
                 text = result.stdout,
@@ -572,9 +574,7 @@ private fun TerminalOutputBlock(
     }
 }
 
-/**
- * 快捷命令面板
- */
+//快捷命令面板(暂时不看)
 @Composable
 private fun SnippetsPanel(onCommandExecute: (String) -> Unit, onDismiss: () -> Unit) {
     val categories = ShellExecutor.predefinedCommands.map { it.category }.distinct()
