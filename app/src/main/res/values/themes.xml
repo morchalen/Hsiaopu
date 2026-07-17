@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Hsiaopu" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="Theme.Hsiaopu.Splash" parent="Theme.SplashScreen">
+        <!-- 必须：设置启动页的背景色 -->
+        <item name="windowSplashScreenBackground">@color/white</item>
+
+        <!-- 必须：设置启动页中间的图标，可以是静态图片或动画 -->
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/hsiaopu_ic_launcher_foreground</item>
+
+        <!-- 可选：如果是动画图标，设置动画时长 -->
+        <!-- <item name="windowSplashScreenAnimationDuration">1000</item> -->
+
+        <!-- 必须：启动页结束后要切换到的正常主题 -->
+        <item name="postSplashScreenTheme">@style/Theme.Hsiaopu</item>  <!-- 闪屏结束后切换到正常主题 -->
+    </style>
+</resources>

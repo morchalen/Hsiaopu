@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 基础极色 -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- 六级灰度（从浅到深） -->
+    <color name="system_gray1">#FFF2F2F7</color>
+    <color name="system_gray2">#FFE5E5EA</color>
+    <color name="system_gray3">#FFD1D1D6</color>
+    <color name="system_gray4">#FFC7C7CC</color>
+    <color name="system_gray5">#FFAEAEB2</color>
+    <color name="system_gray6">#FF8E8E93</color>
+
+    <!-- 深色主题色 -->
+    <color name="dark_background">#FF000000</color>
+    <color name="dark_surface">#FF121212</color>
+    <color name="dark_surface_variant">#FF1E1E1E</color>
+
+    <!-- 浅色主题色 -->
+    <color name="light_background">#FFFFFFFF</color>
+    <color name="light_surface">#FFFFFFFF</color>
+    <color name="light_surface_variant">#FFF2F2F7</color>
+
+    <!-- 主色调（低饱和度蓝） -->
+    <color name="primary">#FF5B6AB0</color>
+    <color name="primary_dark">#FF0D0D0D</color>
+    <color name="accent">#FF5B6AB0</color>
+    <color name="accent_light">#FF7B8AD0</color>
+
+    <!-- 表面色 -->
+    <color name="surface_dark">#FF1A1A1A</color>
+    <color name="surface_light">#FF1A1A1A</color>
+    <color name="on_surface">#FFE0E0E0</color>
+
+    <!-- 聊天气泡 -->
+    <color name="user_bubble">#3D5B6AB0</color>
+    <color name="assistant_bubble">#FF262626</color>
+</resources>

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 清单文件：用于声明应用的基本信息、权限、组件等 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ==================== 权限声明 ==================== -->
+
+    <!-- 允许修改 Wi-Fi 状态 -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- 允许访问 Wi-Fi 状态信息 -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- 允许访问网络（联网） -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 允许访问网络状态信息 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 允许使用蓝牙功能 -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <!-- 允许管理蓝牙设置（Android 12 以下） -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <!-- 允许连接蓝牙设备（Android 12 及以上） -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- 允许保持 CPU 唤醒状态，防止屏幕休眠 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- 允许使用网络共享（热点）功能 -->
+    <uses-permission android:name="android.permission.TETHER_PRIVILEGED" />
+
+    <!-- ==================== application 标签 ==================== -->
+    <!-- 属性部分：放置软件信息（应用名、图标、主题等） -->
+    <!-- 标签内部：声明四大组件（Activity、Service、BroadcastReceiver、ContentProvider） -->
+
+    <application
+        android:name=".HsiaopuApp"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/hsiaopu_ic_launcher_foreground"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/hsiaopu_ic_launcher_foreground_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Hsiaopu.Splash">
+
+        <!-- ==================== 主界面 Activity ==================== -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.Hsiaopu.Splash"
+            android:windowSoftInputMode="adjustNothing">
+            <!-- 应用启动入口：设置为桌面启动图标 -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- ==================== Shizuku 内容提供者 ==================== -->
+        <!-- Shizuku 是一个权限管理框架，用于获取系统级权限，执行高权限操作 -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:exported="true" />
+    </application>
+</manifest>

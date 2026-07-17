@@ -1,0 +1,6 @@
+# 1. 你把代码改完了
+git add .                    # 告诉 Git：“这些文件我要提交”
+git commit -m "日常" # 保存到本地仓库（相当于“确认保存”）
+
+# 2. 上传到 GitHub
+git push origin main         # 把本地仓库的东西推到 GitHub 上
