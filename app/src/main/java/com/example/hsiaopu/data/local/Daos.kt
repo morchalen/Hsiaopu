@@ -74,11 +74,11 @@ interface MessageDao {
 @Dao
 //操作命令历史表
 interface ShellHistoryDao {
-// 注解	    要不要写 SQL	原因
-// @Insert	❌ 不写	    插入数据的 SQL 是固定的，Room 自动生成
-// @Delete	❌ 不写	    按主键删除，也是固定的
-// @Update	❌ 不写	    按主键更新，也是固定的
-// @Query	✅ 必须写	    查询千变万化（条件、排序、联表），Room 猜不到
+    // 注解	    要不要写 SQL	原因
+    // @Insert	❌ 不写	    插入数据的 SQL 是固定的，Room 自动生成
+    // @Delete	❌ 不写	    按主键删除，也是固定的
+    // @Update	❌ 不写	    按主键更新，也是固定的
+    // @Query	✅ 必须写	    查询千变万化（条件、排序、联表），Room 猜不到
     @Query("SELECT * FROM shell_history ORDER BY timestamp ASC")
     fun getAllHistory(): Flow<List<ShellHistoryEntity>>
 

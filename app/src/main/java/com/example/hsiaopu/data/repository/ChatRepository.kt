@@ -10,8 +10,8 @@ import javax.inject.Singleton
 
 @Singleton
 class ChatRepository @Inject constructor(
-    private val conversationDao: ConversationDao,
-    private val messageDao: MessageDao
+    private val conversationDao: ConversationDao,//从hilt中注入一个ConversationDao的实例
+    private val messageDao: MessageDao//从hilt中注入一个MessageDao的实例
 ) {
     fun getAllConversations(): Flow<List<ConversationEntity>> =
         conversationDao.getAllConversations()

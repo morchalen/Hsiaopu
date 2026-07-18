@@ -58,8 +58,8 @@
     <string name="settings_system_prompt">系统提示词</string>
     <string name="settings_provider">服务商</string>
     <string name="settings_parameters">参数</string>
-    <string name="settings_temperature">Temperature</string>
-    <string name="settings_max_tokens">最大 Token 数</string>
+    <string name="settings_temperature">多样性</string>
+    <string name="settings_max_tokens">单次最大Token数</string>
     <string name="settings_token_usage">Token 用量</string>
     <string name="settings_prompt_tokens">输入 Token</string>
     <string name="settings_completion_tokens">输出 Token</string>

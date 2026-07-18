@@ -69,7 +69,7 @@ class SettingsDataStore @Inject constructor(
             systemPrompt = prefs[KEY_SYSTEM_PROMPT] ?: "你是一个智能AI助手，请用简洁、专业的方式回答用户的问题。",  // 默认提示词
             temperature = prefs[KEY_TEMPERATURE] ?: 0.7,                                                    // 默认温度 0.7
             maxTokens = prefs[KEY_MAX_TOKENS] ?: 2048,                                                      // 默认最大 Token 数
-            providerId = prefs[KEY_PROVIDER_ID] ?: "deepseek"                                               // 默认提供商
+            providerId = prefs[KEY_PROVIDER_ID] ?: "openai_compatible"                                               // 默认提供商
         )
     }
 
@@ -79,7 +79,7 @@ class SettingsDataStore @Inject constructor(
      */
     val themeSettingsFlow: Flow<ThemeSettings> = context.dataStore.data.map { prefs ->
         ThemeSettings(
-            isDarkTheme = prefs[KEY_DARK_THEME] ?: "system",  // 默认跟随系统
+            themeMode = prefs[KEY_DARK_THEME] ?: "system",     // 默认跟随系统
             accentColor = prefs[KEY_ACCENT_COLOR] ?: "purple", // 默认紫色
             fontScale = prefs[KEY_FONT_SCALE] ?: 2             // 默认缩放等级 2
         )
@@ -124,9 +124,9 @@ class SettingsDataStore @Inject constructor(
         context.dataStore.edit { it[KEY_PROVIDER_ID] = id }
     }
 
-    /** 更新深色主题模式（"system" / "light" / "dark"） */
-    suspend fun updateDarkTheme(isDark: String) {
-        context.dataStore.edit { it[KEY_DARK_THEME] = isDark }
+    /** 更新主题模式（"system" / "light" / "dark"） */
+    suspend fun updateThemeMode(mode: String) {
+        context.dataStore.edit { it[KEY_DARK_THEME] = mode }
     }
 
     /** 更新主题强调色 */
@@ -199,7 +199,7 @@ class SettingsDataStore @Inject constructor(
  * 用于封装深色主题、强调色、字体缩放三项外观配置
  */
 data class ThemeSettings(
-    val isDarkTheme: String = "system",   // 深色主题模式："system" / "light" / "dark"
+    val themeMode: String = "system",     // 主题模式："system" / "light" / "dark"
     val accentColor: String = "purple",   // 强调色名称
     val fontScale: Int = 2                // 字体缩放等级
 )

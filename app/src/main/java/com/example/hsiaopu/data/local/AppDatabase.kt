@@ -1,3 +1,4 @@
+// 数据库设计图
 package com.example.hsiaopu.data.local   // 包名：放在 data/local 下，很规范
 
 import androidx.room.Database            // Room 的数据库注解

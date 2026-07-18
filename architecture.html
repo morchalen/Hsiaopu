@@ -1,0 +1,2321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hsiaopu 项目架构详解</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-light: #818cf8;
+            --primary-dark: #4f46e5;
+            --bg: #0f172a;
+            --bg-card: #1e293b;
+            --bg-hover: #334155;
+            --text: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border: #334155;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --info: #06b6d4;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* 顶部导航 */
+        header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(30, 41, 59, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--primary-light);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        /* 侧边导航 */
+        aside {
+            position: fixed;
+            top: 70px;
+            left: 0;
+            width: 280px;
+            height: calc(100vh - 70px);
+            background: var(--bg-card);
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            padding: 20px 0;
+        }
+
+        .nav-section {
+            padding: 0 16px;
+            margin-bottom: 24px;
+        }
+
+        .nav-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+            padding-left: 12px;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 16px;
+            color: var(--text);
+            text-decoration: none;
+            font-size: 14px;
+            border-radius: 8px;
+            margin: 2px 8px;
+            transition: all 0.2s;
+        }
+
+        .nav-link:hover {
+            background: var(--bg-hover);
+            color: var(--primary-light);
+        }
+
+        .nav-link.active {
+            background: rgba(99, 102, 241, 0.15);
+            color: var(--primary-light);
+            border-left: 3px solid var(--primary);
+        }
+
+        .nav-icon {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+
+        /* 主内容区 */
+        main {
+            margin-left: 280px;
+            margin-top: 70px;
+            padding: 32px;
+            max-width: calc(100% - 280px);
+        }
+
+        .section {
+            margin-bottom: 48px;
+            scroll-margin-top: 80px;
+        }
+
+        .section-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .section-subtitle {
+            font-size: 14px;
+            color: var(--text-muted);
+            margin-bottom: 24px;
+        }
+
+        .section-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        /* 卡片 */
+        .card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            margin-bottom: 24px;
+        }
+
+        .card-header {
+            padding: 16px 20px;
+            background: rgba(0, 0, 0, 0.2);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .card-body {
+            padding: 20px;
+        }
+
+        /* 文件树 */
+        .file-tree {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            line-height: 1.8;
+        }
+
+        .tree-node {
+            padding-left: 24px;
+            position: relative;
+        }
+
+        .tree-node::before {
+            content: '';
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            width: 8px;
+            height: 1px;
+            background: var(--border);
+        }
+
+        .tree-root {
+            padding-left: 0;
+            font-weight: 600;
+            color: var(--primary-light);
+        }
+
+        .tree-root::before {
+            display: none;
+        }
+
+        .tree-folder {
+            color: var(--warning);
+            cursor: pointer;
+        }
+
+        .tree-file {
+            color: var(--text-muted);
+        }
+
+        .tree-file.kt {
+            color: #7f5af0;
+        }
+
+        .tree-file.java {
+            color: #b07219;
+        }
+
+        /* 代码块 */
+        .code-block {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            overflow: hidden;
+            margin: 16px 0;
+            border: 1px solid var(--border);
+        }
+
+        .code-header {
+            padding: 8px 16px;
+            background: rgba(0, 0, 0, 0.2);
+            font-size: 12px;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .code-copy {
+            cursor: pointer;
+            color: var(--primary-light);
+            transition: color 0.2s;
+        }
+
+        .code-copy:hover {
+            color: var(--primary);
+        }
+
+        .code-content {
+            padding: 16px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            overflow-x: auto;
+            color: var(--text);
+        }
+
+        .code-keyword {
+            color: #c678dd;
+        }
+
+        .code-string {
+            color: #98c379;
+        }
+
+        .code-comment {
+            color: #5c6370;
+            font-style: italic;
+        }
+
+        .code-function {
+            color: #61afef;
+        }
+
+        .code-number {
+            color: #d19a66;
+        }
+
+        .code-annotation {
+            color: #e5c07b;
+        }
+
+        .code-type {
+            color: #e5c07b;
+        }
+
+        /* Mermaid 图表 */
+        .mermaid-container {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 16px 0;
+            overflow-x: auto;
+        }
+
+        /* 流程图节点样式 */
+        .flow-step {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 16px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            margin-bottom: 12px;
+            border-left: 4px solid var(--primary);
+        }
+
+        .flow-number {
+            width: 32px;
+            height: 32px;
+            background: var(--primary);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+
+        .flow-content {
+            flex: 1;
+        }
+
+        .flow-title {
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 4px;
+        }
+
+        .flow-desc {
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        /* 表格 */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+        }
+
+        th,
+        td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            background: rgba(0, 0, 0, 0.2);
+            font-weight: 600;
+            color: var(--text);
+            font-size: 13px;
+        }
+
+        td {
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        tr:hover td {
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        /* 颜色标签 */
+        .color-tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .tag-ui {
+            background: rgba(99, 102, 241, 0.2);
+            color: var(--primary-light);
+        }
+
+        .tag-vm {
+            background: rgba(16, 185, 129, 0.2);
+            color: #4ade80;
+        }
+
+        .tag-repo {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+        }
+
+        .tag-dao {
+            background: rgba(239, 68, 68, 0.2);
+            color: #f87171;
+        }
+
+        .tag-db {
+            background: rgba(6, 182, 212, 0.2);
+            color: #22d3ee;
+        }
+
+        .tag-net {
+            background: rgba(236, 72, 153, 0.2);
+            color: #f472b6;
+        }
+
+        .tag-system {
+            background: rgba(139, 92, 246, 0.2);
+            color: #c4b5fd;
+        }
+
+        /* 可折叠区域 */
+        .collapse-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            cursor: pointer;
+            margin-bottom: 8px;
+            transition: background 0.2s;
+        }
+
+        .collapse-header:hover {
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .collapse-title {
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .collapse-icon {
+            font-size: 16px;
+            transition: transform 0.3s;
+        }
+
+        .collapse-icon.open {
+            transform: rotate(180deg);
+        }
+
+        .collapse-content {
+            padding-left: 16px;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+            max-height: 0;
+        }
+
+        .collapse-content.open {
+            max-height: 2000px;
+            transition: max-height 0.5s ease-in;
+        }
+
+        /* 响应式 */
+        @media (max-width: 1024px) {
+            aside {
+                width: 240px;
+            }
+
+            main {
+                margin-left: 240px;
+                max-width: calc(100% - 240px);
+            }
+        }
+
+        @media (max-width: 768px) {
+            aside {
+                display: none;
+            }
+
+            main {
+                margin-left: 0;
+                max-width: 100%;
+                padding: 20px;
+            }
+
+            .header-content {
+                padding: 12px 16px;
+            }
+
+            h1 {
+                font-size: 16px;
+            }
+        }
+
+        /* 滚动条 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-card);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="header-content">
+            <h1><span class="logo-icon">H</span>Hsiaopu 项目架构详解</h1>
+            <span style="font-size: 12px; color: var(--text-muted);">Android Compose + MVVM + Hilt + Room</span>
+        </div>
+    </header>
+
+    <aside>
+        <div class="nav-section">
+            <div class="nav-title">项目概览</div>
+            <a href="#file-tree" class="nav-link" onclick="activateNav(this)"><span class="nav-icon">📁</span>文件结构</a>
+            <a href="#architecture" class="nav-link" onclick="activateNav(this)"><span
+                    class="nav-icon">🏗️</span>整体架构</a>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-title">数据层</div>
+            <a href="#storage" class="nav-link" onclick="activateNav(this)"><span class="nav-icon">💾</span>存储架构</a>
+            <a href="#database" class="nav-link" onclick="activateNav(this)"><span class="nav-icon">🗄️</span>数据库 ER
+                图</a>
+            <a href="#dao" class="nav-link" onclick="activateNav(this)"><span class="nav-icon">🔌</span>DAO 数据访问</a>
+            <a href="#repository" class="nav-link" onclick="activateNav(this)"><span
+                    class="nav-icon">📦</span>Repository</a>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-title">架构模式</div>
+            <a href="#mvvm" class="nav-link" onclick="activateNav(this)"><span class="nav-icon">📐</span>MVVM 数据流</a>
+            <a href="#di" class="nav-link" onclick="activateNav(this)"><span class="nav-icon">🔗</span>Hilt 依赖注入</a>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-title">核心流程</div>
+            <a href="#ai-flow" class="nav-link" onclick="activateNav(this)"><span class="nav-icon">🤖</span>AI 消息发送</a>
+            <a href="#shell-bus" class="nav-link" onclick="activateNav(this)"><span
+                    class="nav-icon">🚌</span>ShellCommandBus</a>
+            <a href="#settings" class="nav-link" onclick="activateNav(this)"><span
+                    class="nav-icon">⚙️</span>SettingsDataStore</a>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-title">系统模块</div>
+            <a href="#shell-executor" class="nav-link" onclick="activateNav(this)"><span
+                    class="nav-icon">💻</span>ShellExecutor</a>
+            <a href="#shizuku" class="nav-link" onclick="activateNav(this)"><span class="nav-icon">🔑</span>Shizuku
+                权限</a>
+            <a href="#network" class="nav-link" onclick="activateNav(this)"><span class="nav-icon">🌐</span>网络层</a>
+        </div>
+    </aside>
+
+    <main>
+        <!-- 文件结构 -->
+        <section id="file-tree" class="section">
+            <h2 class="section-title"><span class="section-icon">📁</span>项目文件结构</h2>
+            <p class="section-subtitle">项目采用分层架构设计，代码按功能模块组织，遵循 Android 开发最佳实践</p>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="file-tree">
+                        <div class="tree-node tree-root">com.example.hsiaopu/</div>
+
+                        <div class="tree-node tree-folder" onclick="toggleFolder(this)">ui/</div>
+                        <div class="tree-node" style="display:none">
+                            <div class="tree-node tree-folder" onclick="toggleFolder(this)">screen/</div>
+                            <div class="tree-node" style="display:none">
+                                <div class="tree-node tree-file kt">HomeScreen.kt</div>
+                                <div class="tree-node tree-file kt">ShellScreen.kt</div>
+                                <div class="tree-node tree-file kt">SettingsScreen.kt</div>
+                                <div class="tree-node tree-file kt">OnboardingScreen.kt</div>
+                                <div class="tree-node tree-file kt">ConversationDrawerContent.kt</div>
+                                <div class="tree-node tree-file kt">FeatureTooltip.kt</div>
+                            </div>
+                            <div class="tree-node tree-folder" onclick="toggleFolder(this)">theme/</div>
+                            <div class="tree-node" style="display:none">
+                                <div class="tree-node tree-file kt">Color.kt</div>
+                                <div class="tree-node tree-file kt">Theme.kt</div>
+                                <div class="tree-node tree-file kt">Type.kt</div>
+                            </div>
+                        </div>
+
+                        <div class="tree-node tree-folder" onclick="toggleFolder(this)">viewmodel/</div>
+                        <div class="tree-node" style="display:none">
+                            <div class="tree-node tree-file kt">ChatViewModel.kt</div>
+                        </div>
+
+                        <div class="tree-node tree-folder" onclick="toggleFolder(this)">data/</div>
+                        <div class="tree-node" style="display:none">
+                            <div class="tree-node tree-folder" onclick="toggleFolder(this)">local/</div>
+                            <div class="tree-node" style="display:none">
+                                <div class="tree-node tree-file kt">AppDatabase.kt</div>
+                                <div class="tree-node tree-file kt">Daos.kt</div>
+                                <div class="tree-node tree-file kt">ConversationEntity.kt</div>
+                                <div class="tree-node tree-file kt">MessageEntity.kt</div>
+                                <div class="tree-node tree-file kt">ShellHistoryEntity.kt</div>
+                            </div>
+                            <div class="tree-node tree-folder" onclick="toggleFolder(this)">repository/</div>
+                            <div class="tree-node" style="display:none">
+                                <div class="tree-node tree-file kt">ChatRepository.kt</div>
+                                <div class="tree-node tree-file kt">ShellHistoryRepository.kt</div>
+                            </div>
+                            <div class="tree-node tree-file kt">Models.kt</div>
+                            <div class="tree-node tree-file kt">SettingsDataStore.kt</div>
+                            <div class="tree-node tree-file kt">ShellCommandBus.kt</div>
+                            <div class="tree-node tree-file kt">FeatureGuide.kt</div>
+                        </div>
+
+                        <div class="tree-node tree-folder" onclick="toggleFolder(this)">di/</div>
+                        <div class="tree-node" style="display:none">
+                            <div class="tree-node tree-file kt">DatabaseModule.kt</div>
+                        </div>
+
+                        <div class="tree-node tree-folder" onclick="toggleFolder(this)">network/</div>
+                        <div class="tree-node" style="display:none">
+                            <div class="tree-node tree-file kt">AiProvider.kt</div>
+                            <div class="tree-node tree-file kt">AiProviderRegistry.kt</div>
+                            <div class="tree-node tree-file kt">OpenAICompatibleProvider.kt</div>
+                            <div class="tree-node tree-file kt">DeepSeekApi.kt</div>
+                        </div>
+
+                        <div class="tree-node tree-folder" onclick="toggleFolder(this)">system/</div>
+                        <div class="tree-node" style="display:none">
+                            <div class="tree-node tree-file kt">ShellExecutor.kt</div>
+                            <div class="tree-node tree-file kt">SystemControlExecutor.kt</div>
+                            <div class="tree-node tree-file kt">ShizukuHelper.kt</div>
+                        </div>
+
+                        <div class="tree-node tree-file kt">HsiaopuApp.kt</div>
+                        <div class="tree-node tree-file kt">MainActivity.kt</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">模块职责说明</span>
+                </div>
+                <div class="card-body">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>模块</th>
+                                <th>职责</th>
+                                <th>关键文件</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="color-tag tag-ui">ui</span></td>
+                                <td>UI 界面展示，Compose 组件，用户交互</td>
+                                <td>HomeScreen, ShellScreen, SettingsScreen</td>
+                            </tr>
+                            <tr>
+                                <td><span class="color-tag tag-vm">viewmodel</span></td>
+                                <td>业务逻辑，状态管理，数据协调</td>
+                                <td>ChatViewModel</td>
+                            </tr>
+                            <tr>
+                                <td><span class="color-tag tag-db">data/local</span></td>
+                                <td>Room 数据库，实体类，DAO 接口</td>
+                                <td>AppDatabase, Daos, *Entity</td>
+                            </tr>
+                            <tr>
+                                <td><span class="color-tag tag-repo">data/repository</span></td>
+                                <td>数据访问封装，业务数据处理</td>
+                                <td>ChatRepository, ShellHistoryRepository</td>
+                            </tr>
+                            <tr>
+                                <td><span class="color-tag tag-net">network</span></td>
+                                <td>AI API 请求，网络通信，流式响应</td>
+                                <td>AiProvider, OpenAICompatibleProvider</td>
+                            </tr>
+                            <tr>
+                                <td><span class="color-tag tag-system">system</span></td>
+                                <td>系统命令执行，Shizuku 权限，设备控制</td>
+                                <td>ShellExecutor, ShizukuHelper</td>
+                            </tr>
+                            <tr>
+                                <td><span class="color-tag tag-dao">di</span></td>
+                                <td>Hilt 依赖注入配置</td>
+                                <td>DatabaseModule</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- 整体架构 -->
+        <section id="architecture" class="section">
+            <h2 class="section-title"><span class="section-icon">🏗️</span>整体架构图</h2>
+            <p class="section-subtitle">清晰展示项目各层之间的关系和数据流向</p>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="mermaid-container">
+                        <pre class="mermaid">
+graph TB
+    subgraph L1["UI Layer"]
+        HomeScreen[HomeScreen]
+        ShellScreen[ShellScreen]
+        SettingsScreen[SettingsScreen]
+    end
+    
+    subgraph L2["ViewModel Layer"]
+        ChatViewModel[ChatViewModel]
+    end
+    
+    subgraph L3["Repository Layer"]
+        ChatRepository[ChatRepository]
+        ShellHistoryRepository[ShellHistoryRepository]
+    end
+    
+    subgraph L4["Data Layer"]
+        DAOs[Daos]
+        SettingsDataStore[SettingsDataStore]
+        ShellCommandBus[ShellCommandBus]
+    end
+    
+    subgraph L5["Database Layer"]
+        AppDatabase[(AppDatabase)]
+    end
+    
+    subgraph L6["Network Layer"]
+        AiProviderRegistry[AiProviderRegistry]
+        OpenAICompatibleProvider[OpenAICompatibleProvider]
+        DeepSeekApi[DeepSeekApi]
+    end
+    
+    subgraph L7["System Layer"]
+        ShellExecutor[ShellExecutor]
+        SystemControlExecutor[SystemControlExecutor]
+        ShizukuHelper[ShizukuHelper]
+    end
+    
+    HomeScreen --> ChatViewModel
+    ShellScreen --> ChatViewModel
+    SettingsScreen --> ChatViewModel
+    
+    ChatViewModel --> ChatRepository
+    ChatViewModel --> ShellHistoryRepository
+    ChatViewModel --> SettingsDataStore
+    ChatViewModel --> ShellCommandBus
+    ChatViewModel --> AiProviderRegistry
+    
+    ChatRepository --> DAOs
+    ShellHistoryRepository --> DAOs
+    
+    DAOs --> AppDatabase
+    
+    AiProviderRegistry --> OpenAICompatibleProvider
+    OpenAICompatibleProvider --> DeepSeekApi
+    
+    ChatViewModel --> ShellCommandBus
+    ShellCommandBus --> ShellScreen
+    ShellScreen --> ShellExecutor
+    ShellExecutor --> ShizukuHelper
+    ChatViewModel --> SystemControlExecutor
+    
+    style L1 fill:#6366f120,stroke:#6366f1,stroke-width:2px
+    style L2 fill:#10b98120,stroke:#10b981,stroke-width:2px
+    style L3 fill:#f59e0b20,stroke:#f59e0b,stroke-width:2px
+    style L4 fill:#06b6d420,stroke:#06b6d4,stroke-width:2px
+    style L5 fill:#ef444420,stroke:#ef4444,stroke-width:2px
+    style L6 fill:#ec489920,stroke:#ec4899,stroke-width:2px
+    style L7 fill:#8b5cf620,stroke:#8b5cf6,stroke-width:2px
+                        </pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 存储架构对比 -->
+        <section id="storage" class="section">
+            <h2 class="section-title"><span class="section-icon">💾</span>存储架构对比</h2>
+            <p class="section-subtitle">项目使用两种不同的存储方式：DataStore 用于配置，Room（SQLite）用于业务数据</p>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="mermaid-container">
+                        <pre class="mermaid">
+graph TB
+    subgraph S1["SettingsDataStore (DataStore)"]
+        style S1 fill:#f59e0b20,stroke:#f59e0b,stroke-width:2px
+        File[hsiaopu_settings.preferences_pb]
+        Config1["API Key / 模型名称"]
+        Config2["主题设置 / 字体缩放"]
+        Config3["引导页状态"]
+        File --> Config1
+        File --> Config2
+        File --> Config3
+    end
+    
+    subgraph S2["Room Database (SQLite)"]
+        style S2 fill:#06b6d420,stroke:#06b6d4,stroke-width:2px
+        DB[(hsiaopu_db)]
+        Table1["conversations\n(对话表)"]
+        Table2["messages\n(消息表)"]
+        Table3["shell_history\n(命令历史表)"]
+        DB --> Table1
+        DB --> Table2
+        DB --> Table3
+        Table1 -->|1:N| Table2
+    end
+    
+    S1 -->|键值对配置| App
+    S2 -->|结构化数据| App
+    
+    style App fill:#6366f120,stroke:#6366f1,stroke-width:2px
+                        </pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">两种存储方式对比</span>
+                </div>
+                <div class="card-body">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>对比维度</th>
+                                <th><span class="color-tag tag-repo">SettingsDataStore</span></th>
+                                <th><span class="color-tag tag-db">Room Database</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>底层存储</strong></td>
+                                <td>Protocol Buffers 二进制文件</td>
+                                <td>SQLite 数据库文件</td>
+                            </tr>
+                            <tr>
+                                <td><strong>存储位置</strong></td>
+                                <td><code>datastore/hsiaopu_settings.preferences_pb</code></td>
+                                <td><code>databases/hsiaopu_db</code></td>
+                            </tr>
+                            <tr>
+                                <td><strong>存储格式</strong></td>
+                                <td>键值对（Key-Value）</td>
+                                <td>关系型表结构</td>
+                            </tr>
+                            <tr>
+                                <td><strong>存储内容</strong></td>
+                                <td>API Key、模型名称、主题设置、引导页状态</td>
+                                <td>对话、消息、Shell 命令执行历史</td>
+                            </tr>
+                            <tr>
+                                <td><strong>数据关系</strong></td>
+                                <td>无关系（独立键值）</td>
+                                <td>有关系（外键、级联删除）</td>
+                            </tr>
+                            <tr>
+                                <td><strong>查询能力</strong></td>
+                                <td>只能按 Key 查询</td>
+                                <td>支持复杂 SQL 查询（WHERE、ORDER BY、JOIN）</td>
+                            </tr>
+                            <tr>
+                                <td><strong>响应式</strong></td>
+                                <td>✅ Flow 数据流</td>
+                                <td>✅ Flow 数据流</td>
+                            </tr>
+                            <tr>
+                                <td><strong>适用场景</strong></td>
+                                <td>应用配置、用户偏好设置</td>
+                                <td>业务数据、历史记录</td>
+                            </tr>
+                            <tr>
+                                <td><strong>读写特点</strong></td>
+                                <td>读多写少，数据量小</td>
+                                <td>读写频繁，数据量大</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- 数据库 ER 图 -->
+        <section id="database" class="section">
+            <h2 class="section-title"><span class="section-icon">🗄️</span>数据库 ER 图</h2>
+            <p class="section-subtitle">Room（SQLite）中三个数据表的结构及其关系，包含外键约束和索引设计</p>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="mermaid-container">
+                        <pre class="mermaid">
+erDiagram
+    conversations {
+        Long id PK "主键，自增"
+        String title "对话标题"
+        Long createdAt "创建时间"
+        Long updatedAt "更新时间"
+    }
+    
+    messages {
+        Long id PK "主键，自增"
+        Long conversationId FK "关联对话ID"
+        String role "角色: user/assistant/system"
+        String content "消息内容"
+        Long timestamp "时间戳"
+    }
+    
+    shell_history {
+        Long id PK "主键，自增"
+        String command "执行的命令"
+        String stdout "标准输出"
+        String stderr "错误输出"
+        Int exitCode "退出码"
+        Long timestamp "时间戳"
+    }
+    
+    conversations ||--o{ messages : "1:N"
+    messages }o--|| conversations : "CASCADE DELETE"
+                        </pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">数据表详细结构</span>
+                </div>
+                <div class="card-body">
+                    <div class="collapse-header" onclick="toggleCollapse('conv-collapse')">
+                        <span class="collapse-title">conversations（对话表）</span>
+                        <span class="collapse-icon" id="conv-icon">▼</span>
+                    </div>
+                    <div class="collapse-content" id="conv-collapse">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>字段名</th>
+                                    <th>类型</th>
+                                    <th>约束</th>
+                                    <th>说明</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>id</td>
+                                    <td>Long</td>
+                                    <td>PRIMARY KEY AUTOINCREMENT</td>
+                                    <td>主键，自动递增</td>
+                                </tr>
+                                <tr>
+                                    <td>title</td>
+                                    <td>String</td>
+                                    <td>NOT NULL</td>
+                                    <td>对话标题，默认"新对话"</td>
+                                </tr>
+                                <tr>
+                                    <td>createdAt</td>
+                                    <td>Long</td>
+                                    <td>NOT NULL</td>
+                                    <td>创建时间戳</td>
+                                </tr>
+                                <tr>
+                                    <td>updatedAt</td>
+                                    <td>Long</td>
+                                    <td>NOT NULL</td>
+                                    <td>更新时间戳</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="collapse-header" onclick="toggleCollapse('msg-collapse')">
+                        <span class="collapse-title">messages（消息表）</span>
+                        <span class="collapse-icon" id="msg-icon">▼</span>
+                    </div>
+                    <div class="collapse-content" id="msg-collapse">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>字段名</th>
+                                    <th>类型</th>
+                                    <th>约束</th>
+                                    <th>说明</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>id</td>
+                                    <td>Long</td>
+                                    <td>PRIMARY KEY AUTOINCREMENT</td>
+                                    <td>主键，自动递增</td>
+                                </tr>
+                                <tr>
+                                    <td>conversationId</td>
+                                    <td>Long</td>
+                                    <td>FOREIGN KEY CASCADE</td>
+                                    <td>外键关联 conversations.id，级联删除</td>
+                                </tr>
+                                <tr>
+                                    <td>role</td>
+                                    <td>String</td>
+                                    <td>NOT NULL</td>
+                                    <td>消息角色：user/assistant/system</td>
+                                </tr>
+                                <tr>
+                                    <td>content</td>
+                                    <td>String</td>
+                                    <td>NOT NULL</td>
+                                    <td>消息内容</td>
+                                </tr>
+                                <tr>
+                                    <td>timestamp</td>
+                                    <td>Long</td>
+                                    <td>NOT NULL</td>
+                                    <td>消息发送时间戳</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="collapse-header" onclick="toggleCollapse('shell-collapse')">
+                        <span class="collapse-title">shell_history（命令历史表）</span>
+                        <span class="collapse-icon" id="shell-icon">▼</span>
+                    </div>
+                    <div class="collapse-content" id="shell-collapse">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>字段名</th>
+                                    <th>类型</th>
+                                    <th>约束</th>
+                                    <th>说明</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>id</td>
+                                    <td>Long</td>
+                                    <td>PRIMARY KEY AUTOINCREMENT</td>
+                                    <td>主键，自动递增</td>
+                                </tr>
+                                <tr>
+                                    <td>command</td>
+                                    <td>String</td>
+                                    <td>NOT NULL</td>
+                                    <td>执行的 Shell 命令</td>
+                                </tr>
+                                <tr>
+                                    <td>stdout</td>
+                                    <td>String</td>
+                                    <td>-</td>
+                                    <td>命令标准输出</td>
+                                </tr>
+                                <tr>
+                                    <td>stderr</td>
+                                    <td>String</td>
+                                    <td>-</td>
+                                    <td>命令错误输出</td>
+                                </tr>
+                                <tr>
+                                    <td>exitCode</td>
+                                    <td>Int</td>
+                                    <td>DEFAULT -1</td>
+                                    <td>退出码，0=成功，非0=失败</td>
+                                </tr>
+                                <tr>
+                                    <td>timestamp</td>
+                                    <td>Long</td>
+                                    <td>NOT NULL</td>
+                                    <td>执行时间戳</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- DAO 数据访问 -->
+        <section id="dao" class="section">
+            <h2 class="section-title"><span class="section-icon">🔌</span>DAO 数据访问对象</h2>
+            <p class="section-subtitle">Room 框架自动实现的数据库访问接口，无需手写 SQL（@Query 除外）</p>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">ConversationDao 接口</span>
+                </div>
+                <div class="card-body">
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>Daos.kt</span>
+                            <span class="code-copy" onclick="copyCode(this)">📋 复制</span>
+                        </div>
+                        <div class="code-content">
+                            <span class="code-annotation">@Dao</span>
+                            <span class="code-keyword">interface</span>
+                            <span class="code-function">ConversationDao</span> {
+                            <br><br>
+                            <span class="code-comment">// 获取所有对话，按更新时间倒序</span>
+                            <br>
+                            <span class="code-annotation">@Query</span>("<span class="code-string">SELECT * FROM
+                                conversations ORDER BY updatedAt DESC</span>")
+                            <br>
+                            <span class="code-keyword">fun</span> <span
+                                class="code-function">getAllConversations</span>():
+                            Flow&lt;List&lt;ConversationEntity&gt;&gt;
+                            <br><br>
+                            <span class="code-comment">// 根据 ID 查询对话</span>
+                            <br>
+                            <span class="code-annotation">@Query</span>("<span class="code-string">SELECT * FROM
+                                conversations WHERE id = :id</span>")
+                            <br>
+                            <span class="code-keyword">suspend fun</span> <span
+                                class="code-function">getConversationById</span>(id: <span
+                                class="code-type">Long</span>): ConversationEntity?
+                            <br><br>
+                            <span class="code-comment">// 插入对话（Room 自动生成 SQL）</span>
+                            <br>
+                            <span class="code-annotation">@Insert</span>
+                            <br>
+                            <span class="code-keyword">suspend fun</span> <span
+                                class="code-function">insertConversation</span>(conversation: ConversationEntity): <span
+                                class="code-type">Long</span>
+                            <br><br>
+                            <span class="code-comment">// 更新对话（按主键更新）</span>
+                            <br>
+                            <span class="code-annotation">@Update</span>
+                            <br>
+                            <span class="code-keyword">suspend fun</span> <span
+                                class="code-function">updateConversation</span>(conversation: ConversationEntity)
+                            <br><br>
+                            <span class="code-comment">// 删除对话（按主键删除）</span>
+                            <br>
+                            <span class="code-annotation">@Delete</span>
+                            <br>
+                            <span class="code-keyword">suspend fun</span> <span
+                                class="code-function">deleteConversation</span>(conversation: ConversationEntity)
+                            <br>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">注解使用规则</span>
+                </div>
+                <div class="card-body">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>注解</th>
+                                <th>是否需要手写 SQL</th>
+                                <th>说明</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="code-annotation">@Insert</span></td>
+                                <td>❌</td>
+                                <td>插入数据的 SQL 是固定的，Room 自动生成</td>
+                            </tr>
+                            <tr>
+                                <td><span class="code-annotation">@Delete</span></td>
+                                <td>❌</td>
+                                <td>按主键删除，也是固定的</td>
+                            </tr>
+                            <tr>
+                                <td><span class="code-annotation">@Update</span></td>
+                                <td>❌</td>
+                                <td>按主键更新，也是固定的</td>
+                            </tr>
+                            <tr>
+                                <td><span class="code-annotation">@Query</span></td>
+                                <td>✅</td>
+                                <td>查询千变万化（条件、排序、联表），Room 猜不到</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <div
+                        style="margin-top: 16px; padding: 16px; background: rgba(245, 158, 11, 0.1); border-radius: 8px; border-left: 4px solid #f59e0b;">
+                        <strong>💡 Flow 的作用：</strong>
+                        <p style="margin-top: 8px; color: var(--text-muted);">当数据库数据发生变化时，Flow 会自动发出新的数据，UI
+                            可以实时响应更新，实现"数据库变化 → UI 自动刷新"的效果。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Repository -->
+        <section id="repository" class="section">
+            <h2 class="section-title"><span class="section-icon">📦</span>Repository 层</h2>
+            <p class="section-subtitle">数据访问的封装层，屏蔽底层数据源细节，为 ViewModel 提供统一的数据接口</p>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">ChatRepository 核心代码</span>
+                </div>
+                <div class="card-body">
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>ChatRepository.kt</span>
+                            <span class="code-copy" onclick="copyCode(this)">📋 复制</span>
+                        </div>
+                        <div class="code-content">
+                            <span class="code-annotation">@Singleton</span>
+                            <span class="code-keyword">class</span> <span class="code-function">ChatRepository</span>
+                            <span class="code-keyword">@Inject constructor</span>(
+                            <br>&nbsp;&nbsp;<span class="code-keyword">private val</span> conversationDao: <span
+                                class="code-type">ConversationDao</span>,
+                            <br>&nbsp;&nbsp;<span class="code-keyword">private val</span> messageDao: <span
+                                class="code-type">MessageDao</span>
+                            <br>) {
+                            <br><br>
+                            <span class="code-keyword">fun</span> <span
+                                class="code-function">getAllConversations</span>():
+                            Flow&lt;List&lt;ConversationEntity&gt;&gt; =
+                            <br>&nbsp;&nbsp;conversationDao.getAllConversations()
+                            <br><br>
+                            <span class="code-keyword">suspend fun</span> <span
+                                class="code-function">createConversation</span>(title: <span
+                                class="code-type">String</span> = <span class="code-string">"New Chat"</span>): <span
+                                class="code-type">Long</span> {
+                            <br>&nbsp;&nbsp;<span class="code-keyword">val</span> entity = ConversationEntity(title =
+                            title)
+                            <br>&nbsp;&nbsp;<span class="code-keyword">return</span>
+                            conversationDao.insertConversation(entity)
+                            <br>&nbsp;&nbsp;}
+                            <br><br>
+                            <span class="code-keyword">suspend fun</span> <span
+                                class="code-function">insertMessage</span>(entity: MessageEntity): <span
+                                class="code-type">Long</span> =
+                            <br>&nbsp;&nbsp;messageDao.insertMessage(entity)
+                            <br><br>
+                            <span class="code-keyword">fun</span> <span
+                                class="code-function">getMessagesByConversation</span>(conversationId: <span
+                                class="code-type">Long</span>): Flow&lt;List&lt;MessageEntity&gt;&gt; =
+                            <br>&nbsp;&nbsp;messageDao.getMessagesByConversation(conversationId)
+                            <br>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="mermaid-container">
+                        <pre class="mermaid">
+graph LR
+    ViewModel --> Repository
+    Repository --> DAO1[ConversationDao]
+    Repository --> DAO2[MessageDao]
+    Repository --> DAO3[ShellHistoryDao]
+    DAO1 --> Database[(AppDatabase)]
+    DAO2 --> Database[(AppDatabase)]
+    DAO3 --> Database[(AppDatabase)]
+    
+    style Repository fill:#f59e0b20,stroke:#f59e0b,stroke-width:2px
+    style ViewModel fill:#10b98120,stroke:#10b981,stroke-width:2px
+    style Database fill:#ef444420,stroke:#ef4444,stroke-width:2px
+                        </pre>
+                    </div>
+                    <p style="text-align: center; color: var(--text-muted); font-size: 14px;">Repository 作为中间层，聚合多个
+                        DAO，为 ViewModel 提供简洁的数据操作接口</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- MVVM 数据流 -->
+        <section id="mvvm" class="section">
+            <h2 class="section-title"><span class="section-icon">📐</span>MVVM 架构数据流</h2>
+            <p class="section-subtitle">展示从 UI → ViewModel → Repository → Database 的完整数据流，以及反向的数据更新</p>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="mermaid-container">
+                        <pre class="mermaid">
+sequenceDiagram
+    participant UI as HomeScreen (Compose)
+    participant VM as ChatViewModel
+    participant Repo as ChatRepository
+    participant DAO as MessageDao
+    participant DB as AppDatabase (Room)
+    
+    Note over UI,DB: 用户发送消息流程
+    
+    UI->>VM: viewModel.sendMessage("查看电量")
+    VM->>VM: 更新 uiState (加载中, 添加用户消息)
+    VM->>Repo: insertMessage(userMessage)
+    Repo->>DAO: insertMessage(entity)
+    DAO->>DB: INSERT INTO messages...
+    DB-->>DAO: 返回插入ID
+    DAO-->>Repo: Long
+    Repo-->>VM: Long
+    
+    VM->>VM: 调用 AI API (流式响应)
+    loop 流式接收 AI 响应
+        VM->>VM: 更新 streamingContent
+        VM-->>UI: uiState 变化触发重组
+        UI->>UI: 实时显示 AI 回复
+    end
+    
+    VM->>Repo: insertMessage(assistantMessage)
+    Repo->>DAO: insertMessage(entity)
+    DAO->>DB: INSERT INTO messages...
+    DB-->>DAO: 返回插入ID
+    DAO-->>Repo: Long
+    Repo-->>VM: Long
+    
+    VM->>VM: 更新 uiState (加载完成)
+    VM-->>UI: uiState 变化触发重组
+    UI->>UI: 显示完整消息列表
+    
+    Note over UI,DB: 数据流向: UI → VM → Repo → DAO → DB
+    Note over DB,UI: 数据更新: DB → DAO (Flow) → Repo → VM → UI
+                        </pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">ChatViewModel 状态管理</span>
+                </div>
+                <div class="card-body">
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>ChatViewModel.kt</span>
+                            <span class="code-copy" onclick="copyCode(this)">📋 复制</span>
+                        </div>
+                        <div class="code-content">
+                            <span class="code-keyword">data class</span> <span class="code-function">ChatUiState</span>(
+                            <br>&nbsp;&nbsp;<span class="code-keyword">val</span> conversations:
+                            List&lt;ConversationEntity&gt; = emptyList(),
+                            <br>&nbsp;&nbsp;<span class="code-keyword">val</span> currentConversationId: <span
+                                class="code-type">Long</span>? = <span class="code-keyword">null</span>,
+                            <br>&nbsp;&nbsp;<span class="code-keyword">val</span> messages: List&lt;ChatMessage&gt; =
+                            emptyList(),
+                            <br>&nbsp;&nbsp;<span class="code-keyword">val</span> isLoading: <span
+                                class="code-type">Boolean</span> = <span class="code-keyword">false</span>,
+                            <br>&nbsp;&nbsp;<span class="code-keyword">val</span> streamingContent: <span
+                                class="code-type">String</span> = <span class="code-string">""</span>,
+                            <br>&nbsp;&nbsp;<span class="code-keyword">val</span> error: <span
+                                class="code-type">String</span>? = <span class="code-keyword">null</span>
+                            <br>)
+                            <br><br>
+                            <span class="code-keyword">private val</span> _uiState = <span
+                                class="code-function">MutableStateFlow</span>(ChatUiState())
+                            <br><span class="code-keyword">val</span> uiState: StateFlow&lt;ChatUiState&gt; =
+                            _uiState.asStateFlow()
+                        </div>
+                    </div>
+
+                    <div
+                        style="margin-top: 16px; padding: 16px; background: rgba(99, 102, 241, 0.1); border-radius: 8px; border-left: 4px solid #6366f1;">
+                        <strong>🔑 StateFlow 与 MutableStateFlow：</strong>
+                        <ul style="margin-top: 8px; padding-left: 20px; color: var(--text-muted);">
+                            <li><strong>MutableStateFlow</strong>：私有可变流，ViewModel 内部使用，用于发送状态更新</li>
+                            <li><strong>StateFlow</strong>：公共只读流，暴露给 UI 使用，通过 <code>asStateFlow()</code> 转换</li>
+                            <li><strong>collectAsState()</strong>：Compose 组件中订阅 StateFlow，数据变化时自动触发重组</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Hilt 依赖注入 -->
+        <section id="di" class="section">
+            <h2 class="section-title"><span class="section-icon">🔗</span>Hilt 依赖注入</h2>
+            <p class="section-subtitle">展示 Hilt 如何自动创建和注入依赖，从 Database 到 ViewModel 的完整依赖链</p>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="mermaid-container">
+                        <pre class="mermaid">
+graph TD
+    subgraph S1["Hilt Module"]
+        DatabaseModule[DatabaseModule]
+    end
+    
+    subgraph S2["Provided Dependencies"]
+        AppDatabase[AppDatabase]
+        ConversationDao[ConversationDao]
+        MessageDao[MessageDao]
+        ShellHistoryDao[ShellHistoryDao]
+    end
+    
+    subgraph S3["Repositories"]
+        ChatRepository[ChatRepository]
+        ShellHistoryRepository[ShellHistoryRepository]
+    end
+    
+    subgraph S4["ViewModel"]
+        ChatViewModel[ChatViewModel]
+    end
+    
+    DatabaseModule -->|@Provides| AppDatabase
+    AppDatabase -->|abstract fun| ConversationDao
+    AppDatabase -->|abstract fun| MessageDao
+    AppDatabase -->|abstract fun| ShellHistoryDao
+    
+    ChatRepository -->|@Inject| ConversationDao
+    ChatRepository -->|@Inject| MessageDao
+    ShellHistoryRepository -->|@Inject| ShellHistoryDao
+    
+    ChatViewModel -->|@Inject| ChatRepository
+    ChatViewModel -->|@Inject| ShellHistoryRepository
+    ChatViewModel -->|@Inject| SettingsDataStore
+    ChatViewModel -->|@Inject| ShellCommandBus
+    ChatViewModel -->|@Inject| AiProviderRegistry
+    
+    style S1 fill:#8b5cf620,stroke:#8b5cf6,stroke-width:2px
+    style S2 fill:#06b6d420,stroke:#06b6d4,stroke-width:2px
+    style S3 fill:#f59e0b20,stroke:#f59e0b,stroke-width:2px
+    style S4 fill:#10b98120,stroke:#10b981,stroke-width:2px
+                        </pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">DatabaseModule 代码详解</span>
+                </div>
+                <div class="card-body">
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>DatabaseModule.kt</span>
+                            <span class="code-copy" onclick="copyCode(this)">📋 复制</span>
+                        </div>
+                        <div class="code-content">
+                            <span class="code-annotation">@Module</span>
+                            <span class="code-annotation">@InstallIn(SingletonComponent::class)</span>
+                            <span class="code-keyword">object</span> <span class="code-function">DatabaseModule</span> {
+                            <br><br>
+                            <span class="code-comment">// 提供 AppDatabase 单例实例</span>
+                            <br>
+                            <span class="code-annotation">@Provides</span>
+                            <br>
+                            <span class="code-annotation">@Singleton</span>
+                            <br>
+                            <span class="code-keyword">fun</span> <span class="code-function">provideAppDatabase</span>(
+                            <br>&nbsp;&nbsp;<span class="code-annotation">@ApplicationContext</span> context: <span
+                                class="code-type">Context</span>
+                            <br>): <span class="code-type">AppDatabase</span> {
+                            <br>&nbsp;&nbsp;<span class="code-keyword">return</span> Room.databaseBuilder(
+                            <br>&nbsp;&nbsp;&nbsp;&nbsp;context,
+                            <br>&nbsp;&nbsp;&nbsp;&nbsp;AppDatabase::class.java,
+                            <br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-string">"hsiaopu_db"</span>
+                            <br>&nbsp;&nbsp;).build()
+                            <br>&nbsp;&nbsp;}
+                            <br><br>
+                            <span class="code-comment">// 提供 ConversationDao</span>
+                            <br>
+                            <span class="code-annotation">@Provides</span>
+                            <br>
+                            <span class="code-keyword">fun</span> <span
+                                class="code-function">provideConversationDao</span>(db: <span
+                                class="code-type">AppDatabase</span>): ConversationDao = db.conversationDao()
+                            <br><br>
+                            <span class="code-comment">// 提供 MessageDao</span>
+                            <br>
+                            <span class="code-annotation">@Provides</span>
+                            <br>
+                            <span class="code-keyword">fun</span> <span
+                                class="code-function">provideMessageDao</span>(db: <span
+                                class="code-type">AppDatabase</span>): MessageDao = db.messageDao()
+                            <br><br>
+                            <span class="code-comment">// 提供 ShellHistoryDao</span>
+                            <br>
+                            <span class="code-annotation">@Provides</span>
+                            <br>
+                            <span class="code-keyword">fun</span> <span
+                                class="code-function">provideShellHistoryDao</span>(db: <span
+                                class="code-type">AppDatabase</span>): ShellHistoryDao = db.shellHistoryDao()
+                            <br>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Hilt 注解说明</span>
+                </div>
+                <div class="card-body">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>注解</th>
+                                <th>作用</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="code-annotation">@Module</span></td>
+                                <td>标记这是一个依赖注入模块</td>
+                            </tr>
+                            <tr>
+                                <td><span class="code-annotation">@InstallIn</span></td>
+                                <td>指定模块安装到哪个组件（SingletonComponent 表示全局单例）</td>
+                            </tr>
+                            <tr>
+                                <td><span class="code-annotation">@Provides</span></td>
+                                <td>标记提供依赖的方法，Hilt 会调用此方法获取实例</td>
+                            </tr>
+                            <tr>
+                                <td><span class="code-annotation">@Singleton</span></td>
+                                <td>标记单例，整个应用生命周期内只创建一次</td>
+                            </tr>
+                            <tr>
+                                <td><span class="code-annotation">@Inject</span></td>
+                                <td>标记需要注入的构造函数或字段</td>
+                            </tr>
+                            <tr>
+                                <td><span class="code-annotation">@HiltViewModel</span></td>
+                                <td>标记 ViewModel，让 Hilt 自动注入依赖</td>
+                            </tr>
+                            <tr>
+                                <td><span class="code-annotation">@ApplicationContext</span></td>
+                                <td>注入 Application 级别 Context，避免内存泄漏</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- AI 消息发送流程 -->
+        <section id="ai-flow" class="section">
+            <h2 class="section-title"><span class="section-icon">🤖</span>AI 消息发送完整流程</h2>
+            <p class="section-subtitle">核心业务逻辑：doSendWithTools 两轮流请求，包含工具指令解析和执行</p>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="mermaid-container">
+                        <pre class="mermaid">
+sequenceDiagram
+    participant User as 用户
+    participant UI as HomeScreen
+    participant VM as ChatViewModel
+    participant AI as AiProviderRegistry
+    participant API as OpenAICompatibleProvider
+    participant Shell as ShellCommandBus
+    participant Exec as ShellExecutor
+    participant Shizuku as ShizukuHelper
+    participant Repo as ChatRepository
+    
+    User->>UI: 输入"查看电量"
+    UI->>VM: sendMessage("查看电量")
+    VM->>VM: doSendWithTools(convId, content, settings)
+    
+    Note over VM: 步骤1: 存储用户消息
+    VM->>Repo: insertMessage(userMsg)
+    Repo->>Repo: 写入数据库
+    
+    Note over VM: 步骤2: 构建 System Prompt
+    VM->>VM: buildToolSystemPrompt() -> 注入工具定义
+    
+    Note over VM: 步骤3: 第一轮流式请求
+    VM->>AI: sendMessageStream(messages)
+    AI->>API: sendMessageStream(request)
+    API->>API: 调用 Retrofit + OkHttp
+    loop 流式响应
+        API-->>AI: chunk content
+        AI-->>VM: chunk
+        VM->>VM: 更新 streamingContent
+        VM-->>UI: 实时显示
+    end
+    API-->>AI: "[DONE]"
+    AI-->>VM: fullContent
+    
+    Note over VM: 步骤4: 解析工具指令
+    VM->>VM: executeToolsInContent(fullContent)
+    alt 包含 [TOOL:get_battery_info]
+        VM->>VM: 正则匹配 [TOOL:...]
+        VM->>VM: getShellCommandForAction("get_battery_info")
+        VM->>Shell: sendCommand("dumpsys battery")
+        Shell-->>Exec: commands.collect()
+        Exec->>Shizuku: exec("dumpsys battery")
+        Shizuku-->>Exec: stdout
+        Exec->>Shell: sendResult(result)
+        Shell-->>VM: results.collect()
+        VM->>VM: 替换 [TOOL] 为执行结果
+    end
+    
+    alt 有工具执行结果
+        Note over VM: 步骤5: 第二轮总结请求
+        VM->>AI: sendMessageStream(secondMessages)
+        AI->>API: sendMessageStream(request)
+        loop 流式响应
+            API-->>AI: chunk content
+            AI-->>VM: chunk
+            VM->>VM: 更新 streamingContent
+            VM-->>UI: 实时显示总结
+        end
+        API-->>AI: "[DONE]"
+        AI-->>VM: secondContent
+        VM->>VM: finalContent = processed + toolResult + secondContent
+    else 无工具执行
+        VM->>VM: finalContent = processedContent
+    end
+    
+    Note over VM: 步骤6: 持久化最终结果
+    VM->>Repo: insertMessage(assistantMsg)
+    Repo->>Repo: 写入数据库
+    VM->>Repo: updateConversationTitle()
+    VM->>VM: 更新 uiState (加载完成)
+    VM-->>UI: 显示完整消息
+                        </pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">doSendWithTools 核心代码流程</span>
+                </div>
+                <div class="card-body">
+                    <div class="flow-step">
+                        <div class="flow-number">1</div>
+                        <div class="flow-content">
+                            <div class="flow-title">存储用户消息</div>
+                            <div class="flow-desc">将用户输入插入数据库，并更新 UI 状态显示用户消息</div>
+                        </div>
+                    </div>
+
+                    <div class="flow-step">
+                        <div class="flow-number">2</div>
+                        <div class="flow-content">
+                            <div class="flow-title">构建工具系统提示词</div>
+                            <div class="flow-desc">调用 <code>buildToolSystemPrompt()</code>，将工具定义（WiFi控制、蓝牙控制、系统查询等）注入到
+                                system prompt 中</div>
+                        </div>
+                    </div>
+
+                    <div class="flow-step">
+                        <div class="flow-number">3</div>
+                        <div class="flow-content">
+                            <div class="flow-title">第一轮流式请求</div>
+                            <div class="flow-desc">调用 <code>sendMessageStream()</code>，AI 返回可能包含
+                                <code>[TOOL:action_name:param=value]</code> 格式的工具指令
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flow-step">
+                        <div class="flow-number">4</div>
+                        <div class="flow-content">
+                            <div class="flow-title">解析并执行工具指令</div>
+                            <div class="flow-desc">使用正则表达式 <code>\[TOOL:([a-z_]+)(?::([^\]]*))?\]</code> 匹配工具指令，通过
+                                <code>ShellCommandBus</code> 发送给 <code>ShellExecutor</code> 执行
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flow-step">
+                        <div class="flow-number">5</div>
+                        <div class="flow-content">
+                            <div class="flow-title">第二轮总结请求（可选）</div>
+                            <div class="flow-desc">如果有工具执行结果，将结果追加到消息列表，发起第二轮 AI 请求进行总结</div>
+                        </div>
+                    </div>
+
+                    <div class="flow-step">
+                        <div class="flow-number">6</div>
+                        <div class="flow-content">
+                            <div class="flow-title">持久化最终结果</div>
+                            <div class="flow-desc">将 AI 的最终回复（包含工具执行结果）插入数据库，并更新对话标题</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">工具指令映射表</span>
+                </div>
+                <div class="card-body">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>工具名称</th>
+                                <th>对应的 Shell 命令</th>
+                                <th>功能说明</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>get_battery_info</code></td>
+                                <td><code>dumpsys battery</code></td>
+                                <td>获取电池状态信息</td>
+                            </tr>
+                            <tr>
+                                <td><code>enable_wifi</code></td>
+                                <td><code>svc wifi enable</code></td>
+                                <td>开启 WiFi</td>
+                            </tr>
+                            <tr>
+                                <td><code>disable_wifi</code></td>
+                                <td><code>svc wifi disable</code></td>
+                                <td>关闭 WiFi</td>
+                            </tr>
+                            <tr>
+                                <td><code>set_brightness</code></td>
+                                <td><code>settings put system screen_brightness &lt;level&gt;</code></td>
+                                <td>设置屏幕亮度</td>
+                            </tr>
+                            <tr>
+                                <td><code>get_cpu_info</code></td>
+                                <td><code>cat /proc/cpuinfo | head -40</code></td>
+                                <td>获取 CPU 信息</td>
+                            </tr>
+                            <tr>
+                                <td><code>screenshot</code></td>
+                                <td><code>screencap -p &lt;path&gt;</code></td>
+                                <td>截取屏幕</td>
+                            </tr>
+                            <tr>
+                                <td><code>reboot</code></td>
+                                <td><code>reboot</code></td>
+                                <td>重启设备</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ShellCommandBus -->
+        <section id="shell-bus" class="section">
+            <h2 class="section-title"><span class="section-icon">🚌</span>ShellCommandBus 通信机制</h2>
+            <p class="section-subtitle">基于 SharedFlow 的命令总线，实现 ChatViewModel 和 ShellScreen 之间的跨组件通信</p>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="mermaid-container">
+                        <pre class="mermaid">
+graph TD
+    subgraph ChatViewModel
+        SendCommand[sendCommand]
+    end
+    
+    subgraph ShellCommandBus
+        CommandsFlow[_commands SharedFlow]
+        ResultsFlow[_results SharedFlow]
+    end
+    
+    subgraph ShellScreen
+        CollectCommands[commands.collect]
+        SendResult[sendResult]
+        CollectResults[results.collect]
+    end
+    
+    subgraph ShellExecutor
+        Execute[execute command]
+    end
+    
+    ChatViewModel -->|发送命令| SendCommand
+    SendCommand -->|emit| CommandsFlow
+    CommandsFlow -->|collect| CollectCommands
+    CollectCommands -->|执行| Execute
+    Execute -->|结果| SendResult
+    SendResult -->|emit| ResultsFlow
+    ResultsFlow -->|collect| CollectResults
+    CollectResults -->|回调| ChatViewModel
+    
+    style ShellCommandBus fill:#8b5cf620,stroke:#8b5cf6,stroke-width:2px
+                        </pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">ShellCommandBus 核心代码</span>
+                </div>
+                <div class="card-body">
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>ShellCommandBus.kt</span>
+                            <span class="code-copy" onclick="copyCode(this)">📋 复制</span>
+                        </div>
+                        <div class="code-content">
+                            <span class="code-annotation">@Singleton</span>
+                            <span class="code-keyword">class</span> <span class="code-function">ShellCommandBus</span>
+                            <span class="code-keyword">@Inject constructor</span>() {
+                            <br><br>
+                            <span class="code-comment">// 命令发送通道（replay=0 避免重复发送）</span>
+                            <br>
+                            <span class="code-keyword">private val</span> _commands = <span
+                                class="code-function">MutableSharedFlow</span>&lt;<span
+                                class="code-type">String</span>&gt;(
+                            <br>&nbsp;&nbsp;replay = <span class="code-number">0</span>,
+                            <br>&nbsp;&nbsp;extraBufferCapacity = <span class="code-number">20</span>
+                            <br>)
+                            <br>
+                            <span class="code-keyword">val</span> commands = _commands.asSharedFlow()
+                            <br><br>
+                            <span class="code-comment">// 结果返回通道</span>
+                            <br>
+                            <span class="code-keyword">private val</span> _results = <span
+                                class="code-function">MutableSharedFlow</span>&lt;ShellResult&gt;(
+                            <br>&nbsp;&nbsp;replay = <span class="code-number">0</span>,
+                            <br>&nbsp;&nbsp;extraBufferCapacity = <span class="code-number">10</span>
+                            <br>)
+                            <br>
+                            <span class="code-keyword">val</span> results = _results.asSharedFlow()
+                            <br><br>
+                            <span class="code-keyword">suspend fun</span> <span
+                                class="code-function">sendCommand</span>(command: <span class="code-type">String</span>)
+                            {
+                            <br>&nbsp;&nbsp;_commands.emit(command)
+                            <br>}
+                            <br><br>
+                            <span class="code-keyword">suspend fun</span> <span
+                                class="code-function">sendResult</span>(result: ShellResult) {
+                            <br>&nbsp;&nbsp;_results.emit(result)
+                            <br>}
+                            <br>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SettingsDataStore -->
+        <section id="settings" class="section">
+            <h2 class="section-title"><span class="section-icon">⚙️</span>SettingsDataStore 数据流</h2>
+            <p class="section-subtitle">使用 Android DataStore 持久化存储应用配置，支持实时监听配置变化</p>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="mermaid-container">
+                        <pre class="mermaid">
+graph TD
+    subgraph S1["SettingsDataStore"]
+        AppSettingsFlow[settingsFlow]
+        ThemeSettingsFlow[themeSettingsFlow]
+        UpdateApiKey[updateApiKey]
+        UpdateModel[updateModelName]
+        UpdateTheme[updateDarkTheme]
+    end
+    
+    subgraph S2["DataStore"]
+        Preferences[(hsiaopu_settings)]
+    end
+    
+    subgraph S3["ViewModel"]
+        CollectSettings[settings.collect]
+        UpdateSettings[updateApiKey/Model/Theme]
+    end
+    
+    subgraph S4["UI"]
+        SettingsScreen[SettingsScreen]
+        HomeScreen[HomeScreen]
+    end
+    
+    SettingsScreen -->|修改设置| UpdateSettings
+    UpdateSettings -->|suspend| UpdateApiKey
+    UpdateSettings -->|suspend| UpdateModel
+    UpdateSettings -->|suspend| UpdateTheme
+    UpdateApiKey -->|edit| Preferences
+    UpdateModel -->|edit| Preferences
+    UpdateTheme -->|edit| Preferences
+    
+    Preferences -->|data.map| AppSettingsFlow
+    Preferences -->|data.map| ThemeSettingsFlow
+    
+    AppSettingsFlow -->|collect| CollectSettings
+    ThemeSettingsFlow -->|collect| CollectSettings
+    CollectSettings -->|StateFlow| UI
+    
+    style S1 fill:#f59e0b20,stroke:#f59e0b,stroke-width:2px
+    style S2 fill:#06b6d420,stroke:#06b6d4,stroke-width:2px
+                        </pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">存储的配置项</span>
+                </div>
+                <div class="card-body">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>配置项</th>
+                                <th>类型</th>
+                                <th>默认值</th>
+                                <th>说明</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>api_key</td>
+                                <td>String</td>
+                                <td>""</td>
+                                <td>AI API 密钥</td>
+                            </tr>
+                            <tr>
+                                <td>api_endpoint</td>
+                                <td>String</td>
+                                <td>https://api.deepseek.com/v1/chat/completions</td>
+                                <td>API 请求地址</td>
+                            </tr>
+                            <tr>
+                                <td>model_name</td>
+                                <td>String</td>
+                                <td>deepseek-chat</td>
+                                <td>使用的模型名称</td>
+                            </tr>
+                            <tr>
+                                <td>system_prompt</td>
+                                <td>String</td>
+                                <td>"你是一个智能AI助手..."</td>
+                                <td>系统提示词</td>
+                            </tr>
+                            <tr>
+                                <td>temperature</td>
+                                <td>Double</td>
+                                <td>0.7</td>
+                                <td>温度参数（控制随机性）</td>
+                            </tr>
+                            <tr>
+                                <td>max_tokens</td>
+                                <td>Int</td>
+                                <td>2048</td>
+                                <td>最大 Token 数</td>
+                            </tr>
+                            <tr>
+                                <td>dark_theme</td>
+                                <td>String</td>
+                                <td>"system"</td>
+                                <td>深色主题模式</td>
+                            </tr>
+                            <tr>
+                                <td>accent_color</td>
+                                <td>String</td>
+                                <td>"purple"</td>
+                                <td>强调色</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ShellExecutor -->
+        <section id="shell-executor" class="section">
+            <h2 class="section-title"><span class="section-icon">💻</span>ShellExecutor 命令执行器</h2>
+            <p class="section-subtitle">封装 Shizuku 命令执行逻辑，提供预定义命令列表和统一的执行接口</p>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="mermaid-container">
+                        <pre class="mermaid">
+sequenceDiagram
+    participant Bus as ShellCommandBus
+    participant Exec as ShellExecutor
+    participant Shizuku as ShizukuHelper
+    participant OS as Android OS
+    
+    Bus->>Exec: execute(command)
+    Exec->>Exec: 检查 Shizuku 可用性
+    alt Shizuku 不可用
+        Exec-->>Bus: ShellResult(exitCode=127, stderr="Shizuku 不可用")
+    else Shizuku 无权限
+        Exec-->>Bus: ShellResult(exitCode=126, stderr="Shizuku 权限未授权")
+    else 正常执行
+        Exec->>Shizuku: exec(command)
+        Shizuku->>OS: 反射调用 newProcess()
+        OS-->>Shizuku: Process 输出
+        Shizuku-->>Exec: stdout
+        Exec-->>Bus: ShellResult(exitCode=0, stdout=...)
+    end
+                        </pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">预定义命令分类</span>
+                </div>
+                <div class="card-body">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>分类</th>
+                                <th>命令示例</th>
+                                <th>数量</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>系统信息</td>
+                                <td>CPU信息、内存信息、运行时间、内核版本</td>
+                                <td>5</td>
+                            </tr>
+                            <tr>
+                                <td>进程管理</td>
+                                <td>CPU占用、进程列表、OOM信息</td>
+                                <td>3</td>
+                            </tr>
+                            <tr>
+                                <td>网络</td>
+                                <td>DNS服务器、路由表、ARP缓存、监听端口</td>
+                                <td>4</td>
+                            </tr>
+                            <tr>
+                                <td>存储</td>
+                                <td>挂载点、磁盘使用、分区列表</td>
+                                <td>3</td>
+                            </tr>
+                            <tr>
+                                <td>应用</td>
+                                <td>已安装应用、包服务、电池状态</td>
+                                <td>3</td>
+                            </tr>
+                            <tr>
+                                <td>硬件</td>
+                                <td>传感器、输入设备、显示信息、音频信息</td>
+                                <td>4</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Shizuku 权限 -->
+        <section id="shizuku" class="section">
+            <h2 class="section-title"><span class="section-icon">🔑</span>Shizuku 权限管理</h2>
+            <p class="section-subtitle">通过反射绕过 Shizuku 13+ 的 @RestrictTo 限制，实现系统命令执行</p>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="mermaid-container">
+                        <pre class="mermaid">
+graph TD
+    subgraph S1["ShizukuHelper"]
+        IsAvailable[isAvailable]
+        HasPermission[hasPermission]
+        RequestPermission[requestPermission]
+        Exec[exec]
+        NewProcessMethod[newProcessMethod]
+    end
+    
+    subgraph S2["Shizuku Library"]
+        PingBinder[pingBinder]
+        CheckPermission[checkSelfPermission]
+        RequestPerm[requestPermission]
+        NewProcess[newProcess - @RestrictTo]
+    end
+    
+    subgraph S3["Android Framework"]
+        BinderIPC[Binder IPC 通信]
+        ShellProcess[执行 Shell 命令]
+    end
+    
+    IsAvailable --> PingBinder
+    PingBinder --> BinderIPC
+    
+    HasPermission --> CheckPermission
+    CheckPermission --> BinderIPC
+    
+    RequestPermission --> RequestPerm
+    RequestPerm --> BinderIPC
+    
+    Exec --> NewProcessMethod
+    NewProcessMethod -->|反射调用| NewProcess
+    NewProcess --> ShellProcess
+    
+    style S1 fill:#8b5cf620,stroke:#8b5cf6,stroke-width:2px
+    style S2 fill:#6366f120,stroke:#6366f1,stroke-width:2px
+                        </pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">反射调用关键代码</span>
+                </div>
+                <div class="card-body">
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>ShizukuHelper.kt</span>
+                            <span class="code-copy" onclick="copyCode(this)">📋 复制</span>
+                        </div>
+                        <div class="code-content">
+                            <span class="code-keyword">private val</span> newProcessMethod <span class="code-keyword">by
+                                lazy</span> {
+                            <br>&nbsp;&nbsp;Shizuku::class.java.getDeclaredMethod(
+                            <br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-string">"newProcess"</span>,
+                            <br>&nbsp;&nbsp;&nbsp;&nbsp;Array&lt;String&gt;::class.java,
+                            <br>&nbsp;&nbsp;&nbsp;&nbsp;Array&lt;String&gt;::class.java,
+                            <br>&nbsp;&nbsp;&nbsp;&nbsp;String::class.java
+                            <br>&nbsp;&nbsp;).also { it.isAccessible = <span class="code-keyword">true</span> }
+                            <br>}
+                            <br><br>
+                            <span class="code-keyword">fun</span> <span class="code-function">exec</span>(command: <span
+                                class="code-type">String</span>): <span class="code-type">String</span> {
+                            <br>&nbsp;&nbsp;<span class="code-keyword">val</span> args = arrayOf(<span
+                                class="code-string">"sh"</span>, <span class="code-string">"-c"</span>, command)
+                            <br>&nbsp;&nbsp;<span class="code-keyword">val</span> process = newProcessMethod.invoke(
+                            <br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-keyword">null</span>, args, <span
+                                class="code-keyword">null</span>, <span class="code-keyword">null</span>
+                            <br>&nbsp;&nbsp;) <span class="code-keyword">as</span> java.lang.Process
+                            <br>&nbsp;&nbsp;<span class="code-comment">// 读取 process.inputStream...</span>
+                            <br>}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Network 层 -->
+        <section id="network" class="section">
+            <h2 class="section-title"><span class="section-icon">🌐</span>网络层架构</h2>
+            <p class="section-subtitle">基于 Retrofit + OkHttp 的 AI API 通信，支持流式响应</p>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="mermaid-container">
+                        <pre class="mermaid">
+graph TD
+    subgraph ViewModel
+        SendMessage[sendMessageStream]
+    end
+    
+    subgraph AiProviderRegistry
+        GetProvider[getProvider]
+        SendStream[sendMessageStream]
+    end
+    
+    subgraph OpenAICompatibleProvider
+        GetApi[getApi]
+        SendRequest[sendMessageStream]
+    end
+    
+    subgraph Retrofit
+        DeepSeekApi[DeepSeekApi]
+        OkHttp[OkHttpClient]
+        Logging[HttpLoggingInterceptor]
+        Auth[Auth Interceptor]
+    end
+    
+    subgraph AI Server
+        DeepSeek[DeepSeek API]
+        OpenAI[OpenAI API]
+        Anthropic[Anthropic API]
+    end
+    
+    ViewModel --> SendMessage
+    SendMessage --> GetProvider
+    GetProvider --> SendStream
+    SendStream --> GetApi
+    GetApi -->|创建| OkHttp
+    OkHttp -->|添加| Logging
+    OkHttp -->|添加| Auth
+    OkHttp -->|创建| DeepSeekApi
+    SendRequest --> DeepSeekApi
+    DeepSeekApi -->|HTTP POST| AI Server
+    
+    style AiProviderRegistry fill:#ec489920,stroke:#ec4899,stroke-width:2px
+    style OpenAICompatibleProvider fill:#f472b620,stroke:#f472b6,stroke-width:2px
+    style Retrofit fill:#06b6d420,stroke:#06b6d4,stroke-width:2px
+                        </pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">支持的 AI 服务提供商</span>
+                </div>
+                <div class="card-body">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>提供商</th>
+                                <th>默认端点</th>
+                                <th>支持模型</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>DeepSeek</td>
+                                <td>https://api.deepseek.com/v1</td>
+                                <td>deepseek-chat, deepseek-coder, deepseek-v4, deepseek-v4-flash</td>
+                            </tr>
+                            <tr>
+                                <td>OpenAI</td>
+                                <td>https://api.openai.com/v1</td>
+                                <td>gpt-4o, gpt-4o-mini, gpt-3.5-turbo</td>
+                            </tr>
+                            <tr>
+                                <td>Anthropic</td>
+                                <td>兼容 OpenAI 格式</td>
+                                <td>claude-3.5-sonnet, claude-3-opus, claude-3-sonnet</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            themeVariables: {
+                primaryColor: '#6366f1',
+                primaryTextColor: '#f1f5f9',
+                primaryBorderColor: '#6366f1',
+                lineColor: '#94a3b8',
+                secondaryColor: '#1e293b',
+                tertiaryColor: '#334155',
+                backgroundColor: '#0f172a'
+            }
+        });
+
+        function toggleFolder(element) {
+            const next = element.nextElementSibling;
+            next.style.display = next.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function toggleCollapse(id) {
+            const content = document.getElementById(id);
+            const icon = document.getElementById(id.replace('-collapse', '-icon'));
+            content.classList.toggle('open');
+            icon.classList.toggle('open');
+        }
+
+        function activateNav(element) {
+            document.querySelectorAll('.nav-link').forEach(link => {
+                link.classList.remove('active');
+            });
+            element.classList.add('active');
+        }
+
+        function copyCode(element) {
+            const codeContent = element.parentElement.nextElementSibling.textContent;
+            navigator.clipboard.writeText(codeContent).then(() => {
+                const originalText = element.textContent;
+                element.textContent = '✓ 已复制';
+                setTimeout(() => {
+                    element.textContent = originalText;
+                }, 2000);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const navLinks = document.querySelectorAll('.nav-link');
+            navLinks.forEach(link => {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const targetId = link.getAttribute('href');
+                    const targetElement = document.querySelector(targetId);
+                    if (targetElement) {
+                        targetElement.scrollIntoView({ behavior: 'smooth' });
+                    }
+                    activateNav(link);
+                });
+            });
+        });
+    </script>
+</body>
+
+</html>

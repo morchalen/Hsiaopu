@@ -13,35 +13,52 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
-//数据库依赖注入模块告诉 Hilt 如何创建数据库和 DAO 对象
+/**
+ * Hilt 依赖注入模块，负责提供 Room 数据库及其相关的 DAO 对象。
+ * 
+ * 该模块安装于 SingletonComponent 作用域，意味着提供的依赖在整个应用生命周期内保持单例。
+ */
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
 
-    // 提供 AppDatabase 实例，整个 App 只有一个实例（单例）
-    @Provides                       // 👈 “我是仓库管理员，谁要货就来找我”
-    @Singleton                      // @Singleton 保证的是“这个函数造出来的东西”全局只有一个。【Single  ton：唯一  的东西】
-    fun provideAppDatabase(         // 👈 “这个函数的名字叫：提供数据库”
-        @ApplicationContext context: Context  // 👈 “我需要App的身份证（上下文）才能干活”
-    ): AppDatabase {                // 👈 “我造出来的东西是一个AppDatabase类”
-                    return Room.databaseBuilder( // 👈 “开始动工盖房子”
-                        context,                // 👈 “在App的地盘上盖”
-                        AppDatabase::class.java,// 👈 “照着这张设计图（AppDatabase类）盖”
-                        "hsiaopu_db"            // 👈 “房子名字叫hsiaopu_db”
-                    ).build()                   // 👈 “盖好了，交付使用！”
-                    //造出了一个完整的数据库，里面包含了你在 AppDatabase 里声明的所有表（ConversationEntity、MessageEntity、ShellHistoryEntity）
-                    }
-    //DAO（Data Access Object，数据访问对象）是 Room 提供的一种机制，用于在应用中访问数据库中的数据。
+    /**
+     * 提供全局唯一的 AppDatabase 实例。
+     * 
+     * 使用 Room.databaseBuilder 创建数据库，数据库文件名为 "hsiaopu_db"。
+     * 该实例在整个应用运行期间只会被创建一次，后续注入时复用同一实例。
+     * 
+     * @param context 应用上下文，由 Hilt 自动注入
+     * @return AppDatabase 单例实例
+     */
+    @Provides//当有人需要这个东西时，请按这个方法创建它
+    @Singleton
+    fun provideAppDatabase(
+        @ApplicationContext context: Context
+    ): AppDatabase {
+        return Room.databaseBuilder(
+            context,
+            AppDatabase::class.java,
+            "hsiaopu_db"
+        ).build()
+    }
 
-    
-    @Provides//供应注解，当有人调用provideConversationDao函数的时候，自动去使用db.conversationDao()返回一个ConversationDao实例
+    /**
+     * 提供 ConversationDao 数据访问对象。
+     * 
+     * 通过已创建的 AppDatabase 实例获取对应的 DAO，用于操作会话表。
+     * 
+     * @param db AppDatabase 实例，由 Hilt 自动注入（复用 provideAppDatabase 提供的单例）
+     * @return ConversationDao 实例
+     */
+    @Provides//当有人需要这个东西时，请按这个方法创建它获取他的返回值；
     fun provideConversationDao(db: AppDatabase): ConversationDao = db.conversationDao()
-
+    //举例：其他一个地方使用private val conversationDao: ConversationDao；
+    //意思就是说，我要创建一个参数叫conversationDao，它的类型是ConversationDao；
+    //然后，hilt就会去看有@Provides注解的函数，也没有哪个函数返回值是 ConversationDao；如果找到了，那就直接现场执行这个函数；然后获取返回值给他；
     
-    @Provides//供应注解，当有人调用provideMessageDao函数的时候，自动去使用db.messageDao()返回一个MessageDao实例
+    @Provides//提供 MessageDao 数据访问对象。
     fun provideMessageDao(db: AppDatabase): MessageDao = db.messageDao()
-
-    
-    @Provides//供应注解，当有人调用provideShellHistoryDao函数的时候，自动去使用db.shellHistoryDao()返回一个ShellHistoryDao实例
+    @Provides//提供 ShellHistoryDao 数据访问对象。
     fun provideShellHistoryDao(db: AppDatabase): ShellHistoryDao = db.shellHistoryDao()
 }

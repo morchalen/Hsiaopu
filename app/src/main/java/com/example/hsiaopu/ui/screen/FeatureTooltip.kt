@@ -25,6 +25,7 @@ import com.example.hsiaopu.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+//上滑提示
 @Composable
 fun FeatureTooltip(
     text: String,

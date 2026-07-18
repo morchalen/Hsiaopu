@@ -27,11 +27,15 @@ class OpenAICompatibleProvider @Inject constructor() : AiProvider {
 
     override val info = ProviderInfo(
         id = "openai_compatible",
-        name = "OpenAI Compatible",
-        description = "兼容 OpenAI API 格式的模型服务",
-        defaultEndpoint = "https://api.openai.com/v1/chat/completions",
-        defaultModel = "gpt-4o-mini",
-        models = listOf("gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo", "claude-3.5-sonnet")
+        name = "AI Provider",
+        description = "兼容 OpenAI API 格式的模型服务（支持 DeepSeek、OpenAI、Anthropic 等）",
+        defaultEndpoint = "https://api.deepseek.com/v1/chat/completions",
+        defaultModel = "deepseek-chat",
+        models = listOf(
+            "deepseek-chat", "deepseek-coder", "deepseek-v4", "deepseek-v4-flash",
+            "gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo",
+            "claude-3.5-sonnet", "claude-3-opus", "claude-3-sonnet"
+        )
     )
 
     private fun getApi(settings: AppSettings): DeepSeekApi {
@@ -113,6 +117,16 @@ class OpenAICompatibleProvider @Inject constructor() : AiProvider {
             "gpt-4o-mini" -> (promptTokens * 0.15 + completionTokens * 0.6) / 1_000_000
             "gpt-3.5-turbo" -> (promptTokens * 0.5 + completionTokens * 1.5) / 1_000_000
             else -> 0.0
+        }
+    }
+
+    suspend fun fetchModels(settings: AppSettings): List<String> {
+        return try {
+            val api = getApi(settings)
+            val response = api.getModels()
+            response.data.map { it.id }
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 

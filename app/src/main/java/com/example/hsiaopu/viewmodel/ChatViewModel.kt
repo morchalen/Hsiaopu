@@ -1,5 +1,5 @@
 package com.example.hsiaopu.viewmodel
-
+//要看懂每一个参数是什么意思，什么类型，以及它的作用
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -26,14 +26,14 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-//聊天界面的 UI 状态快照（单一可信数据源）。
+//数据类，用于存储聊天界面的状态
 data class ChatUiState(
-    val conversations: List<ConversationEntity> = emptyList(),
-    val currentConversationId: Long? = null,
-    val messages: List<ChatMessage> = emptyList(),
-    val isLoading: Boolean = false,
-    val streamingContent: String = "",
-    val error: String? = null
+    val conversations: List<ConversationEntity> = emptyList(),//对话的列表
+    val currentConversationId: Long? = null,//当前选中的对话id
+    val messages: List<ChatMessage> = emptyList(),//当前选中的对话的消息列表
+    val isLoading: Boolean = false,//是否正在加载中
+    val streamingContent: String = "",//流式内容
+    val error: String? = null//错误信息
 )
 
 //负责管理聊天会话、消息收发、AI 服务提供商调度以及工具指令执行的核心 ViewModel。
@@ -58,19 +58,22 @@ class ChatViewModel @Inject constructor(
     /** 获取当前应用设置的同步快照 */
     fun getCurrentSettings(): AppSettings = _settings.value
 
-    private val _uiState = MutableStateFlow(ChatUiState())
+    private val _uiState = MutableStateFlow(ChatUiState())//热流
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()//私有变公有
 
     private val _settings = MutableStateFlow(AppSettings())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
-    private val _themeSettings = MutableStateFlow(ThemeSettings())
-    val themeSettings: StateFlow<ThemeSettings> = _themeSettings.asStateFlow()
+    private val _themeSettings = MutableStateFlow(ThemeSettings())//热流，ThemeSettings更新就重载
+    val themeSettings: StateFlow<ThemeSettings> = _themeSettings.asStateFlow()//私有变公有
 
     private val _providers = MutableStateFlow<List<ProviderInfo>>(emptyList())
     val providers: StateFlow<List<ProviderInfo>> = _providers.asStateFlow()
 
-    init {
+    private val _models = MutableStateFlow<List<String>>(emptyList())
+    val models: StateFlow<List<String>> = _models.asStateFlow()
+
+    init {//对象创建时自动执行
         _providers.value = providerRegistry.getAllProviders()
 
         viewModelScope.launch {
@@ -202,9 +205,9 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch { settingsDataStore.updateProviderId(id) }
     }
 
-    fun updateDarkTheme(isDark: String) {
-        _themeSettings.update { it.copy(isDarkTheme = isDark) }
-        viewModelScope.launch { settingsDataStore.updateDarkTheme(isDark) }
+    fun updateThemeMode(mode: String) {
+        _themeSettings.update { it.copy(themeMode = mode) }
+        viewModelScope.launch { settingsDataStore.updateThemeMode(mode) }
     }
 
     fun updateAccentColor(color: String) {
@@ -215,6 +218,14 @@ class ChatViewModel @Inject constructor(
     fun updateFontScale(scale: Int) {
         _themeSettings.update { it.copy(fontScale = scale) }
         viewModelScope.launch { settingsDataStore.updateFontScale(scale) }
+    }
+
+    fun refreshModels() {//刷新模型列表函数
+        viewModelScope.launch {//在ViewModel的协程范围内执行
+            val currentSettings = _settings.value//获取当前的设置值
+            val fetchedModels = providerRegistry.fetchModels(currentSettings.providerId, currentSettings)//调用providerRegistry的fetchModels函数，获取模型列表[返回的类型是List<String>]
+            _models.value = fetchedModels//将获取到的模型列表赋值给_models.value    
+        }
     }
 
     // ==========================================================================

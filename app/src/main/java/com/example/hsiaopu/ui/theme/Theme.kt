@@ -12,7 +12,7 @@ import com.example.hsiaopu.data.ThemeSettings
 import com.example.hsiaopu.viewmodel.ChatViewModel
 
 // ╔══════════════════════════════════════════════════════════╗
-// ║  主题系统 v2.0 — 深色/浅色双模式，黑白灰为主基调       ║
+// ║  主题系统 — 深色/浅色双模式，黑白灰为主基调       ║
 // ║  FunctionalBlue 作为唯一主色调（低饱和度）              ║
 // ╚══════════════════════════════════════════════════════════╝
 
@@ -69,12 +69,12 @@ fun HsiaopuTheme(
     content: @Composable () -> Unit
 ) {
     val viewModel: ChatViewModel = hiltViewModel()
-    val themeSettings by viewModel.themeSettings.collectAsState()
-
-    val isDark = when (themeSettings.isDarkTheme) {
+    val themeSettings by viewModel.themeSettings.collectAsState()//这里自动收集themeSettings类的更新
+    //原来在这里啊，深色模式在这里切换的哈
+    val isDark = when (themeSettings.themeMode) {//这里使用themeSettings类里面的参数themeMode来判断是否深色模式
         "light" -> false
         "dark" -> true
-        else -> isSystemInDarkTheme()
+        else -> isSystemInDarkTheme()//如果是system，默认使用系统主题;isSystemInDarkTheme是系统自带的判断深色模式的函数哈
     }
 
     val colorScheme = if (isDark) darkScheme() else lightScheme()
