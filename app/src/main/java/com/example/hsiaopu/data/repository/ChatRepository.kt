@@ -1,5 +1,5 @@
 package com.example.hsiaopu.data.repository
-
+//仓库，是vm与数据库交流的中间层
 import com.example.hsiaopu.data.local.ConversationDao
 import com.example.hsiaopu.data.local.ConversationEntity
 import com.example.hsiaopu.data.local.MessageDao

@@ -8,8 +8,7 @@ data class AppSettings(
     val modelName: String = "deepseek-chat",
     val systemPrompt: String = "你是一个智能AI助手，请用简洁、专业的方式回答用户的问题。",
     val temperature: Double = 0.7,
-    val maxTokens: Int = 2048,
-    val providerId: String = "deepseek"
+    val maxTokens: Int = 2048
 )
 
 // ========== Network Request/Response ==========

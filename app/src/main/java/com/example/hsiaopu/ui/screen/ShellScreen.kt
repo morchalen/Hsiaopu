@@ -156,7 +156,7 @@ fun ShellScreen(
                                             ChatMessage("system", "你是一个 Shell 命令输出解读专家。请用简洁的中文解释以下命令执行结果的含义，不要超过100字。"),
                                             ChatMessage("user", "命令: ${lastResult.command}\n输出: ${lastResult.stdout}\n错误: ${lastResult.stderr}\n退出码: ${lastResult.exitCode}")
                                         )
-                                        val interpretation = aiProviderRegistry.sendMessage(appSettings.providerId, messages, appSettings)
+                                        val interpretation = aiProviderRegistry.sendMessage(messages, appSettings)
                                         val interpretationResult = ShellResult(
                                             command = "[解读]",
                                             stdout = interpretation,
@@ -435,7 +435,7 @@ fun ShellScreen(
                                         ChatMessage("system", "你是一个 Shell 命令生成器。根据用户的自然语言描述，返回一个可直接执行的 Shell 命令。只返回命令本身，不要任何解释或额外文本。如果无法生成命令，返回 'ERROR'。"),
                                         ChatMessage("user", smartGenerateInput)
                                     )
-                                    val generatedCommand = aiProviderRegistry.sendMessage(appSettings.providerId, messages, appSettings).trim()
+                                    val generatedCommand = aiProviderRegistry.sendMessage(messages, appSettings).trim()
                                     if (generatedCommand.equals("ERROR", ignoreCase = true)) {
                                         smartGenerateError = "未识别到对应的 Shell 指令，请重新描述"
                                     } else {

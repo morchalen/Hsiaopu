@@ -42,7 +42,6 @@ class SettingsDataStore @Inject constructor(
         private val KEY_SYSTEM_PROMPT = stringPreferencesKey("system_prompt")   // 系统提示词
         private val KEY_TEMPERATURE = doublePreferencesKey("temperature")       // 温度参数（控制回答的随机性）
         private val KEY_MAX_TOKENS = intPreferencesKey("max_tokens")            // 最大 Token 数
-        private val KEY_PROVIDER_ID = stringPreferencesKey("provider_id")       // AI 服务提供商 ID
 
         // 主题与外观配置
         private val KEY_DARK_THEME = stringPreferencesKey("dark_theme")         // 深色主题模式
@@ -68,8 +67,7 @@ class SettingsDataStore @Inject constructor(
             modelName = prefs[KEY_MODEL_NAME] ?: "deepseek-chat",                                           // 默认模型
             systemPrompt = prefs[KEY_SYSTEM_PROMPT] ?: "你是一个智能AI助手，请用简洁、专业的方式回答用户的问题。",  // 默认提示词
             temperature = prefs[KEY_TEMPERATURE] ?: 0.7,                                                    // 默认温度 0.7
-            maxTokens = prefs[KEY_MAX_TOKENS] ?: 2048,                                                      // 默认最大 Token 数
-            providerId = prefs[KEY_PROVIDER_ID] ?: "openai_compatible"                                               // 默认提供商
+            maxTokens = prefs[KEY_MAX_TOKENS] ?: 2048                                                       // 默认最大 Token 数
         )
     }
 
@@ -117,11 +115,6 @@ class SettingsDataStore @Inject constructor(
     /** 更新最大 Token 数 */
     suspend fun updateMaxTokens(tokens: Int) {
         context.dataStore.edit { it[KEY_MAX_TOKENS] = tokens }
-    }
-
-    /** 更新 AI 服务提供商 ID */
-    suspend fun updateProviderId(id: String) {
-        context.dataStore.edit { it[KEY_PROVIDER_ID] = id }
     }
 
     /** 更新主题模式（"system" / "light" / "dark"） */

@@ -16,7 +16,6 @@ import com.example.hsiaopu.data.ShellCommandBus
 import com.example.hsiaopu.data.repository.ChatRepository
 import com.example.hsiaopu.data.repository.ShellHistoryRepository
 import com.example.hsiaopu.network.AiProviderRegistry
-import com.example.hsiaopu.network.ProviderInfo
 import com.example.hsiaopu.network.UsageStats
 import com.example.hsiaopu.system.SysResult
 import com.example.hsiaopu.system.SystemControlExecutor
@@ -53,7 +52,6 @@ class ChatViewModel @Inject constructor(
     //这里的get是固定的写法，使用空格间隔一下，这个是每次访问dataStore的时候，就使用get函数，得到一个settingsDataStore对象
     val shellRepo: ShellHistoryRepository get() = shellHistoryRepository
     val cmdBus: ShellCommandBus get() = shellCommandBus
-    val aiProvider: AiProviderRegistry get() = providerRegistry
 
     /** 获取当前应用设置的同步快照 */
     fun getCurrentSettings(): AppSettings = _settings.value
@@ -67,30 +65,23 @@ class ChatViewModel @Inject constructor(
     private val _themeSettings = MutableStateFlow(ThemeSettings())//热流，ThemeSettings更新就重载
     val themeSettings: StateFlow<ThemeSettings> = _themeSettings.asStateFlow()//私有变公有
 
-    private val _providers = MutableStateFlow<List<ProviderInfo>>(emptyList())
-    val providers: StateFlow<List<ProviderInfo>> = _providers.asStateFlow()
-
     private val _models = MutableStateFlow<List<String>>(emptyList())
     val models: StateFlow<List<String>> = _models.asStateFlow()
 
-    init {//对象创建时自动执行
-        _providers.value = providerRegistry.getAllProviders()
-
+    init {
         viewModelScope.launch {
             settingsDataStore.settingsFlow.collect { _settings.value = it }
         }
 
-        viewModelScope.launch {
+        viewModelScope.launch {//启动一个协程，持续监听 DataStore 中的主题设置变化，每次变化都更新 ViewModel 中的 _themeSettings 状态
             settingsDataStore.themeSettingsFlow.collect { _themeSettings.value = it }
         }
 
-        viewModelScope.launch {
+        viewModelScope.launch {//启动一个协程，持续监听数据库中所有对话的变化，每次变化都更新 ViewModel 中的 _uiState 状态
             repository.getAllConversations().collect { conversations ->
                 _uiState.update { it.copy(conversations = conversations) }
             }
         }
-
-
     }
 
     // ==========================================================================
@@ -200,11 +191,6 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch { settingsDataStore.updateMaxTokens(tokens) }
     }
 
-    fun updateProviderId(id: String) {
-        _settings.update { it.copy(providerId = id) }
-        viewModelScope.launch { settingsDataStore.updateProviderId(id) }
-    }
-
     fun updateThemeMode(mode: String) {
         _themeSettings.update { it.copy(themeMode = mode) }
         viewModelScope.launch { settingsDataStore.updateThemeMode(mode) }
@@ -220,11 +206,11 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch { settingsDataStore.updateFontScale(scale) }
     }
 
-    fun refreshModels() {//刷新模型列表函数
-        viewModelScope.launch {//在ViewModel的协程范围内执行
-            val currentSettings = _settings.value//获取当前的设置值
-            val fetchedModels = providerRegistry.fetchModels(currentSettings.providerId, currentSettings)//调用providerRegistry的fetchModels函数，获取模型列表[返回的类型是List<String>]
-            _models.value = fetchedModels//将获取到的模型列表赋值给_models.value    
+    fun refreshModels() {
+        viewModelScope.launch {
+            val currentSettings = _settings.value
+            val fetchedModels = providerRegistry.fetchModels(currentSettings)
+            _models.value = fetchedModels
         }
     }
 
@@ -295,10 +281,8 @@ class ChatViewModel @Inject constructor(
                     addAll(_uiState.value.messages)
                 }
 
-                // 2. 第一轮流式请求
                 var fullContent = ""
                 providerRegistry.sendMessageStream(
-                    settings.providerId,
                     messages,
                     settings
                 ).collect { chunk ->
@@ -331,7 +315,6 @@ class ChatViewModel @Inject constructor(
                     var secondContent = ""
                     try {
                         providerRegistry.sendMessageStream(
-                            settings.providerId,
                             secondMessages,
                             settings
                         ).collect { chunk ->
