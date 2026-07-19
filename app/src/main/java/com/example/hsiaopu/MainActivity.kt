@@ -62,7 +62,7 @@ data class BottomNavItem(
 fun MainScreen() {
     // ViewModel：给 View（视图）准备的 Model（模型）
     val chatViewModel: ChatViewModel = hiltViewModel() // 定义一个 ChatViewModel 类型的对象，名字叫 chatViewModel
-    // 使用函数 hiltViewModel() 的返回值，赋值给 chatViewModel
+    // 梦的开始，开始逐级注入依赖了
 
     val uiState by chatViewModel.uiState.collectAsState() // 把 uiState 的值，委托给后面这个函数 collectAsState 来赋值
     // 从 ViewModel 拿数据，数据变了 UI 自动刷新

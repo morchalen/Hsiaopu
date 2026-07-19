@@ -18,24 +18,19 @@ import com.example.hsiaopu.R
 import com.example.hsiaopu.system.ShizukuHelper
 import com.example.hsiaopu.ui.theme.*
 import com.example.hsiaopu.viewmodel.ChatViewModel
-import androidx.compose.foundation.isSystemInDarkTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(viewModel: ChatViewModel) {//ChatViewModel是整个app的mvvm架构的vm部分
-    val uiState by viewModel.uiState.collectAsState()//📡 “订阅” ViewModel 的uiState数据流，只要 uiState 有更新，界面就自动重绘。”
-    val settings by viewModel.settings.collectAsState()//📡 “订阅” ViewModel 的settings数据流，只要 settings 有更新，界面就自动重绘。”
-    val themeSettings by viewModel.themeSettings.collectAsState()//📡 “订阅” ViewModel 的themeSettings数据类，只要 themeSettings 有更新，界面就自动重绘。”
-    var showAboutDialog by remember { mutableStateOf(false) }//创建一个实时监听的布尔变量初始化为false，remember就是重载的时候记住这个，然后mutableStateOf(false)就是初始化为false，showAboutDialog就是实时监听的布尔变量，只要showAboutDialog有更新，界面就自动重绘
-    // mutableStateOf(xxx) = 初始化为 xxx，并且实时监听变化，变了就立刻重载（重组）
-    // remember{xxx}就是记住里面的xxx，每次重载的时候都记住这个xxx，不然每次重载就再次初始化了；
-    //重载的例子：旋转屏幕，分屏，深色模式切换，语言切换，字体，显示大小切换，折叠屏切换；
-    // Shizuku 状态
-    val shizukuAvailable = remember { mutableStateOf(ShizukuHelper.isAvailable()) }//实时监听状态，只要shizukuAvailable有更新，界面就自动重绘
+fun SettingsScreen(viewModel: ChatViewModel) {
+    val uiState by viewModel.uiState.collectAsState()
+    val settings by viewModel.settings.collectAsState()
+    val themeSettings by viewModel.themeSettings.collectAsState()
+    var showAboutDialog by remember { mutableStateOf(false) }
+    val shizukuAvailable = remember { mutableStateOf(ShizukuHelper.isAvailable()) }
     val systemDarkTheme = isSystemInDarkTheme()//isSystemInDarkTheme函数本身就是自动监听系统主题变化的，所以这里不需要mutableStateOf
    
-    LaunchedEffect(Unit) {//初始化时启动一个协程
-        shizukuAvailable.value = ShizukuHelper.isAvailable() && ShizukuHelper.hasPermission()//判断Shizuku是否可用 且 是否有权限
+    LaunchedEffect(Unit) {
+        shizukuAvailable.value = ShizukuHelper.isAvailable() && ShizukuHelper.hasPermission()
     }
 
     // 关于 App 的详细信息对话框
@@ -195,9 +190,9 @@ fun SettingsScreen(viewModel: ChatViewModel) {//ChatViewModel是整个app的mvvm
                         )
                         //
                         FilterChip(
-                            selected = themeSettings.themeMode != "system",//如果是浅色主题，选中
+                            selected = themeSettings.themeMode != "system",
                             onClick = {
-                                if(systemDarkTheme){//onclick里面不属于@Composable区域，所以这里需要调用这个提前定义的参数systemDarkTheme=isSystemInDarkTheme()
+                                if(systemDarkTheme){//onclick里面不属于@Composable区域，isSystemInDarkTheme只能用于@Composable区域调用，所以这里需要调用这个提前定义的参数systemDarkTheme=isSystemInDarkTheme()
                                     viewModel.updateThemeMode("light")
                                 }
                                 else{
@@ -210,18 +205,16 @@ fun SettingsScreen(viewModel: ChatViewModel) {//ChatViewModel是整个app的mvvm
                                 }
                                 else{
                                     Text(stringResource(R.string.settings_theme_dark), style = MaterialTheme.typography.labelMedium)
-                                }   
+                                }
                             },
-                            leadingIcon = {//如果现在是浅色主题，显示浅色图标，否则显示深色图标
+                            leadingIcon = {
                                 if(isSystemInDarkTheme()){
                                     Icon(Icons.Default.LightMode, contentDescription = null, modifier = Modifier.size(16.dp))
                                 }
                                 else{
                                     Icon(Icons.Default.DarkMode, contentDescription = null, modifier = Modifier.size(16.dp))
                                 }
-
                             }
-
                         )
 
                     }

@@ -335,8 +335,6 @@ fun MessageBubble(
     val dateFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }  // 时间格式化
     //Locale.getDefault() = “用你手机的默认语言来显示日期和文本。” 😊
     val isDark = isSystemInDarkTheme()                               // 是否深色模式
-
-    // 主题感知气泡颜色：根据深色/浅色模式切换
     val userBubbleColor = if (isDark) UserBubbleDark else UserBubbleLight//重组的时候自动修改
     val assistantBubbleColor = Color.Transparent                     // AI 消息背景透明
 

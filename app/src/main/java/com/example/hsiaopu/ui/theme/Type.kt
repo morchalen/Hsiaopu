@@ -1,34 +1,12 @@
 package com.example.hsiaopu.ui.theme
 
 import androidx.compose.material3.Typography
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
-import com.example.hsiaopu.viewmodel.ChatViewModel
 
-/**
- * 5 档字体缩放：0=超小 1=小 2=标准 3=大 4=超大
- * 映射到实际缩放因子
- */
-private val fontScaleMap = mapOf(
-    0 to 0.80f,
-    1 to 0.90f,
-    2 to 1.00f,
-    3 to 1.10f,
-    4 to 1.25f
-)
-
-@Composable
-fun AppTypography(): Typography {
-    val viewModel: ChatViewModel = hiltViewModel()
-    val themeSettings by viewModel.themeSettings.collectAsState()
-    val scale = fontScaleMap[themeSettings.fontScale] ?: 1.0f
-
+fun AppTypography(scale: Float = 1.0f): Typography {
     return Typography(
         displayLarge = TextStyle(
             fontFamily = FontFamily.Default,

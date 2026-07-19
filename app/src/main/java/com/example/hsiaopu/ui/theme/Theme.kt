@@ -8,13 +8,30 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.example.hsiaopu.data.ThemeSettings
 import com.example.hsiaopu.viewmodel.ChatViewModel
 
-// ╔══════════════════════════════════════════════════════════╗
-// ║  主题系统 — 深色/浅色双模式，黑白灰为主基调       ║
-// ║  FunctionalBlue 作为唯一主色调（低饱和度）              ║
-// ╚══════════════════════════════════════════════════════════╝
+@Composable
+fun HsiaopuTheme(
+    content: @Composable () -> Unit
+) {
+    val viewModel: ChatViewModel = hiltViewModel()
+    val themeSettings by viewModel.themeSettings.collectAsState()
+
+    val isDark = when (themeSettings.themeMode) {
+        "light" -> false
+        "dark" -> true
+        else -> isSystemInDarkTheme()
+    }
+
+    val colorScheme = if (isDark) darkScheme() else lightScheme()
+    val typography = AppTypography()
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = typography,
+        content = content
+    )
+}
 
 private fun darkScheme() = darkColorScheme(
     primary = FunctionalBlueLight,
@@ -63,26 +80,3 @@ private fun lightScheme() = lightColorScheme(
     outlineVariant = LightOnSurfaceVariant.copy(alpha = 0.2f),
     scrim = Black.copy(alpha = 0.6f)
 )
-
-@Composable
-fun HsiaopuTheme(
-    content: @Composable () -> Unit
-) {
-    val viewModel: ChatViewModel = hiltViewModel()
-    val themeSettings by viewModel.themeSettings.collectAsState()//这里自动收集themeSettings类的更新
-    //原来在这里啊，深色模式在这里切换的哈
-    val isDark = when (themeSettings.themeMode) {//这里使用themeSettings类里面的参数themeMode来判断是否深色模式
-        "light" -> false
-        "dark" -> true
-        else -> isSystemInDarkTheme()//如果是system，默认使用系统主题;isSystemInDarkTheme是系统自带的判断深色模式的函数哈
-    }
-
-    val colorScheme = if (isDark) darkScheme() else lightScheme()
-    val typography = AppTypography()
-
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = typography,
-        content = content
-    )
-}

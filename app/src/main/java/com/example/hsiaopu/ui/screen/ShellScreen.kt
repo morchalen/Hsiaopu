@@ -66,7 +66,6 @@ fun ShellScreen(
     val keyboardController = LocalSoftwareKeyboardController.current // 软键盘控制器
     val focusRequester = remember { FocusRequester() } // 输入框焦点请求
 
-    // 动态主题颜色
     val isDark = isSystemInDarkTheme()
     val terminalBg = if (isDark) Color(0xFF121212) else Color(0xFFFAFAFA) // 终端背景色
     val terminalText = if (isDark) Color(0xFFE0E0E0) else Color(0xFF333333) // 终端文本色
