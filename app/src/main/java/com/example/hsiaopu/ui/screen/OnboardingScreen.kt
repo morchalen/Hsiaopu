@@ -283,8 +283,8 @@ fun OnboardingScreen(
                         // 按钮文字：非最后页显示"下一步"，最后页显示"开始使用"
                         text = if (currentPage < pageCount - 1) "下一步" else "开始使用",
                         modifier = Modifier.padding(horizontal = 8.dp),
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 16.sp
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }
@@ -331,7 +331,7 @@ private fun OnboardingPageContent(
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.padding(horizontal = 40.dp) // 左右各 40dp 内边距
+        modifier = Modifier.padding(horizontal = 32.dp) // 引导页水平边距 32dp（规范三）
     ) {
         // ---------------------------------------------------------------------
         // 图标区域：圆形背景 + 呼吸脉动动画
@@ -357,7 +357,7 @@ private fun OnboardingPageContent(
         }
 
         // 图标和标题之间的间距
-        Spacer(modifier = Modifier.height(36.dp))
+        Spacer(modifier = Modifier.height(32.dp))
 
         // ---------------------------------------------------------------------
         // 标题文字

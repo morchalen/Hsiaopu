@@ -188,8 +188,8 @@ private fun DrawerItem(//抽屉项
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 2.dp),
-            shape = RoundedCornerShape(10.dp),
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            shape = RoundedCornerShape(12.dp),
             color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
             else MaterialTheme.colorScheme.surface
         ) {
@@ -200,7 +200,7 @@ private fun DrawerItem(//抽屉项
                         onClick = onSelect,
                         onLongClick = { showMenu = true }
                     )
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
 

@@ -93,7 +93,7 @@ fun SettingsScreen(viewModel: ChatViewModel) {
                 //         )
                 //     }
                 // }
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 //apikey输入框，当输入框的值改变时调用onValueChange函数，参数it是输入框的值，调用这个{}里面的viewModel.updateApiKey函数，更新settings.apiKey的值
                 SettingsTextField(stringResource(R.string.settings_api_key), settings.apiKey) { viewModel.updateApiKey(it) }
                 //api地址输入框，当输入框的值改变时调用onValueChange函数，参数it是输入框的值，调用这个{}里面的viewModel.updateApiEndpoint函数，更新settings.apiEndpoint的值
@@ -101,7 +101,7 @@ fun SettingsScreen(viewModel: ChatViewModel) {
                 val models by viewModel.models.collectAsState()//实时收集viewModel.models的变化，有更新就立刻重绘[返回的类型是List<String>]
                 var expanded by remember { mutableStateOf(false) }//下拉菜单是否展开的状态，默认关闭
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(modifier = Modifier.weight(1f)) {
@@ -288,8 +288,8 @@ private fun SettingsCard(title: String, content: @Composable ColumnScope.() -> U
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary)
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(12.dp))
             content()
         }
@@ -303,7 +303,7 @@ private fun SettingsTextField(label: String, value: String, minLines: Int = 1, o
         value = value,//输入框的当前值
         onValueChange = onValueChange,//输入框的值改变时调用，实时更新settings.apiKey的值
         label = { Text(label, style = MaterialTheme.typography.bodySmall) },//输入框的标签
-        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         singleLine = minLines == 1,
         minLines = minLines,
         shape = RoundedCornerShape(12.dp),

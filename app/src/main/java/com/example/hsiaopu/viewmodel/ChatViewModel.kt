@@ -69,7 +69,7 @@ class ChatViewModel @Inject constructor(
     val models: StateFlow<List<String>> = _models.asStateFlow()
 
     init {
-        viewModelScope.launch {
+        viewModelScope.launch {//启动一个协程，持续监听 DataStore 中的应用设置变化，每次变化都更新 ViewModel 中的 _settings 状态
             settingsDataStore.settingsFlow.collect { _settings.value = it }
         }
 
@@ -194,11 +194,6 @@ class ChatViewModel @Inject constructor(
     fun updateThemeMode(mode: String) {
         _themeSettings.update { it.copy(themeMode = mode) }
         viewModelScope.launch { settingsDataStore.updateThemeMode(mode) }
-    }
-
-    fun updateAccentColor(color: String) {
-        _themeSettings.update { it.copy(accentColor = color) }
-        viewModelScope.launch { settingsDataStore.updateAccentColor(color) }
     }
 
     fun updateFontScale(scale: Int) {

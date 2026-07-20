@@ -1,5 +1,5 @@
 package com.example.hsiaopu.di
-//这里就是依赖的最底层的生产处
+//这里就是依赖的最底层的生产处Dependency Injection
 import android.content.Context
 import androidx.room.Room
 import com.example.hsiaopu.data.local.AppDatabase

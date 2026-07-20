@@ -25,8 +25,6 @@
     <!-- 主色调（低饱和度蓝） -->
     <color name="primary">#FF5B6AB0</color>
     <color name="primary_dark">#FF0D0D0D</color>
-    <color name="accent">#FF5B6AB0</color>
-    <color name="accent_light">#FF7B8AD0</color>
 
     <!-- 表面色 -->
     <color name="surface_dark">#FF1A1A1A</color>

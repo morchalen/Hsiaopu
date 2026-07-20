@@ -16,8 +16,11 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// 扩展属性：为 Context 创建一个 DataStore 实例，用于持久化存储键值对
-// 数据会保存在文件名为 "hsiaopu_settings" 的本地文件中
+// Context.dataStore扩展属性：为 Context 创建一个 DataStore 实例，用于持久化存储键值对
+//  Preferences DataStore（存键值对）
+// 委托创建，第一次访问时初始化
+// 文件名，存在 /data/data/包名/files/datastore/
+//数据会保存在文件名为 "hsiaopu_settings" 的本地文件中
 // by lazy 委托确保只有在第一次访问时才创建，整个 App 生命周期只有一个实例
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "hsiaopu_settings")
 
@@ -40,12 +43,11 @@ class SettingsDataStore @Inject constructor(
         private val KEY_API_ENDPOINT = stringPreferencesKey("api_endpoint")     // API 请求地址
         private val KEY_MODEL_NAME = stringPreferencesKey("model_name")         // 使用的模型名称
         private val KEY_SYSTEM_PROMPT = stringPreferencesKey("system_prompt")   // 系统提示词
-        private val KEY_TEMPERATURE = doublePreferencesKey("temperature")       // 温度参数（控制回答的随机性）
+        private val KEY_TEMPERATURE = doublePreferencesKey("temperature")       // 随机性
         private val KEY_MAX_TOKENS = intPreferencesKey("max_tokens")            // 最大 Token 数
 
         // 主题与外观配置
         private val KEY_DARK_THEME = stringPreferencesKey("dark_theme")         // 深色主题模式
-        private val KEY_ACCENT_COLOR = stringPreferencesKey("accent_color")     // 强调色
         private val KEY_FONT_SCALE = intPreferencesKey("font_scale")            // 字体缩放
 
         // 引导页状态
@@ -78,7 +80,6 @@ class SettingsDataStore @Inject constructor(
     val themeSettingsFlow: Flow<ThemeSettings> = context.dataStore.data.map { prefs ->
         ThemeSettings(
             themeMode = prefs[KEY_DARK_THEME] ?: "system",     // 默认跟随系统
-            accentColor = prefs[KEY_ACCENT_COLOR] ?: "purple", // 默认紫色
             fontScale = prefs[KEY_FONT_SCALE] ?: 2             // 默认缩放等级 2
         )
     }
@@ -120,11 +121,6 @@ class SettingsDataStore @Inject constructor(
     /** 更新主题模式（"system" / "light" / "dark"） */
     suspend fun updateThemeMode(mode: String) {
         context.dataStore.edit { it[KEY_DARK_THEME] = mode }
-    }
-
-    /** 更新主题强调色 */
-    suspend fun updateAccentColor(color: String) {
-        context.dataStore.edit { it[KEY_ACCENT_COLOR] = color }
     }
 
     /** 更新字体缩放比例 */
@@ -189,10 +185,9 @@ class SettingsDataStore @Inject constructor(
 
 /**
  * 主题设置数据类
- * 用于封装深色主题、强调色、字体缩放三项外观配置
+ * 用于封装深色主题、字体缩放两项外观配置
  */
 data class ThemeSettings(
     val themeMode: String = "system",     // 主题模式："system" / "light" / "dark"
-    val accentColor: String = "purple",   // 强调色名称
     val fontScale: Int = 2                // 字体缩放等级
 )

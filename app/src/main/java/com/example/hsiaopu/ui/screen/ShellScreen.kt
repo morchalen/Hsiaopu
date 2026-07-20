@@ -50,6 +50,24 @@ import com.example.hsiaopu.data.SettingsDataStore
 import com.example.hsiaopu.data.ShellCommandBus
 import com.example.hsiaopu.data.repository.ShellHistoryRepository
 import com.example.hsiaopu.network.AiProviderRegistry
+import com.example.hsiaopu.ui.theme.TerminalBgDark
+import com.example.hsiaopu.ui.theme.TerminalBgLight
+import com.example.hsiaopu.ui.theme.TerminalErrorDark
+import com.example.hsiaopu.ui.theme.TerminalErrorLight
+import com.example.hsiaopu.ui.theme.TerminalInputBarBgDark
+import com.example.hsiaopu.ui.theme.TerminalInputBarBgLight
+import com.example.hsiaopu.ui.theme.TerminalInputFieldBgDark
+import com.example.hsiaopu.ui.theme.TerminalInputFieldBgLight
+import com.example.hsiaopu.ui.theme.TerminalPromptDark
+import com.example.hsiaopu.ui.theme.TerminalPromptLight
+import com.example.hsiaopu.ui.theme.TerminalRowBgEvenDark
+import com.example.hsiaopu.ui.theme.TerminalRowBgEvenLight
+import com.example.hsiaopu.ui.theme.TerminalRowBgOddDark
+import com.example.hsiaopu.ui.theme.TerminalRowBgOddLight
+import com.example.hsiaopu.ui.theme.TerminalTextDark
+import com.example.hsiaopu.ui.theme.TerminalTextLight
+import com.example.hsiaopu.ui.theme.TerminalWarningDark
+import com.example.hsiaopu.ui.theme.TerminalWarningLight
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,12 +85,13 @@ fun ShellScreen(
     val focusRequester = remember { FocusRequester() } // 输入框焦点请求
 
     val isDark = isSystemInDarkTheme()
-    val terminalBg = if (isDark) Color(0xFF121212) else Color(0xFFFAFAFA) // 终端背景色
-    val terminalText = if (isDark) Color(0xFFE0E0E0) else Color(0xFF333333) // 终端文本色
-    val promptColor = if (isDark) Color(0xFF4CAF50) else Color(0xFF2E7D32) // 提示符颜色
-    val errorColor = if (isDark) Color(0xFFF44336) else Color(0xFFD32F2F) // 错误信息颜色
-    val warningColor = if (isDark) Color(0xFFFFC107) else Color(0xFFE65100) // 警告信息颜色
-    val inputBarBg = if (isDark) Color(0xFF1E1E1E) else Color(0xFFFFFFFF) // 输入栏背景色
+    // 颜色全部来自主题 Color.kt，禁止硬编码
+    val terminalBg = if (isDark) TerminalBgDark else TerminalBgLight
+    val terminalText = if (isDark) TerminalTextDark else TerminalTextLight
+    val promptColor = if (isDark) TerminalPromptDark else TerminalPromptLight
+    val errorColor = if (isDark) TerminalErrorDark else TerminalErrorLight
+    val warningColor = if (isDark) TerminalWarningDark else TerminalWarningLight
+    val inputBarBg = if (isDark) TerminalInputBarBgDark else TerminalInputBarBgLight
 
     var command by remember { mutableStateOf("") } // 当前输入的命令
     var isRunning by remember { mutableStateOf(false) } // 命令是否正在执行
@@ -232,9 +251,9 @@ fun ShellScreen(
                     // 核心逻辑：判断奇偶，分配淡淡的交替背景色
                     val isEven = index % 2 == 0
                     val blockBgColor = if (isDark) {
-                        if (isEven) Color(0xFF121212) else Color(0xFF1A1A1A)
+                        if (isEven) TerminalRowBgEvenDark else TerminalRowBgOddDark
                     } else {
-                        if (isEven) Color(0xFFFAFAFA) else Color(0xFFF0F2F5)
+                        if (isEven) TerminalRowBgEvenLight else TerminalRowBgOddLight
                     }
 
                     TerminalOutputBlock(
@@ -301,7 +320,7 @@ fun ShellScreen(
                         modifier = Modifier
                             .weight(1f)
                             .background(
-                                color = if (isDark) Color(0xFF2D2D2D) else Color(0xFFF0F0F0),
+                                color = if (isDark) TerminalInputFieldBgDark else TerminalInputFieldBgLight,
                                 shape = RoundedCornerShape(8.dp)
                             )
                             .padding(horizontal = 12.dp, vertical = 12.dp),
@@ -525,7 +544,7 @@ private fun TerminalOutputBlock(
                 //弹窗提示
                 Toast.makeText(context, "已复制输出内容", Toast.LENGTH_SHORT).show()
             }
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(horizontal = 12.dp, vertical = 12.dp)
     ) {
         // 显示发出去的命令
         Text(
@@ -544,10 +563,10 @@ private fun TerminalOutputBlock(
                 fontFamily = FontFamily.Monospace,
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
-                modifier = Modifier.padding(top = 2.dp)
+                modifier = Modifier.padding(top = 4.dp)
             )
         }
-        
+
         // 错误输出
         if (result.stderr.isNotEmpty()) {
             Text(
@@ -556,7 +575,7 @@ private fun TerminalOutputBlock(
                 fontFamily = FontFamily.Monospace,
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
-                modifier = Modifier.padding(top = 2.dp)
+                modifier = Modifier.padding(top = 4.dp)
             )
         }
         

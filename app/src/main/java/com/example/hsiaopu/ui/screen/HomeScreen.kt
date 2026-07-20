@@ -31,7 +31,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -143,12 +142,16 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
     val chatContent = @Composable {
         Column(modifier = Modifier.fillMaxSize().imePadding()) {
 
-            // 紧凑式标题
-            Surface(color = MaterialTheme.colorScheme.surface) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+            // 使用 TopAppBar 作为页面锚点（规范六：每个主页面必须有 TopAppBar）
+            TopAppBar(
+                title = {
+                    Text(
+                        "Hsiaopu",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                navigationIcon = {
                     if (!isTablet) {
                         IconButton(onClick = {
                             scope.launch { drawerState.open() }
@@ -156,22 +159,21 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
                             Icon(Icons.Default.Menu, contentDescription = "对话记录菜单", modifier = Modifier.size(22.dp))
                         }
                     }
-
-                    Text("Hsiaopu", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.weight(1f))
-
+                },
+                actions = {
                     IconButton(
                         onClick = { viewModel.createNewConversation() },
                         enabled = uiState.messages.isNotEmpty() || uiState.streamingContent.isNotEmpty()
                     ) {
-                        // 只在有对话内容时才显示新建按钮
                         if (uiState.messages.isNotEmpty() || uiState.streamingContent.isNotEmpty()) {
                             Icon(Icons.Default.Add, contentDescription = "新建对话框", modifier = Modifier.size(22.dp))
                         }
                     }
-                }
-            }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            )
 
             // 内容区域
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -349,7 +351,7 @@ fun MessageBubble(
             modifier = Modifier.padding(//padding是内边距，下面用来描述占据的面积位置
                 start = if (isUser) 0.dp else 4.dp,// 用户消息：左侧不留白，AI 消息：左侧留4dp
                 end = if (isUser) 4.dp else 0.dp,// 用户消息：右侧留4dp，AI 消息：右侧不留白
-                bottom = 2.dp// 底部留白2dp
+                bottom = 4.dp// 底部留白4dp（间距阶梯 xs）
             )
         ) {
             //1： AI 消息：显示 "AI" 标签
@@ -366,8 +368,7 @@ fun MessageBubble(
             Text(
                 text = dateFormat.format(Date(message.timestamp)),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                fontSize = 10.sp
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
             )
 
             //3： 用户消息：显示 "You" 标签
@@ -457,7 +458,7 @@ fun MessageBubble(
 fun LoadingDots() {
     var step by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { while (true) { delay(300L); step = (step + 1) % 3 } }
-    Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         repeat(3) { i ->
             val scale by animateFloatAsState(
                 targetValue = if (step == i) 1.3f else 1f,
@@ -633,13 +634,13 @@ fun MarkdownText(content: String, modifier: Modifier = Modifier) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Surface(color = codeBlockBg, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth().border(0.5.dp, CodeBorder, RoundedCornerShape(8.dp))) {
                         Box(modifier = Modifier.padding(12.dp)) {
-                            Text(text = segment.code, fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp)
+                            Text(text = segment.code, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp)
                         }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                 }
                 is MarkdownSegment.InlineCode -> Surface(color = inlineCodeBg, shape = RoundedCornerShape(4.dp)) {
-                    Text(text = segment.code, fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                    Text(text = segment.code, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                 }
                 is MarkdownSegment.Header -> Text(text = segment.text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 is MarkdownSegment.ListItem -> Row {
