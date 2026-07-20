@@ -15,7 +15,6 @@ import com.example.hsiaopu.data.ShellCommandBus
 import com.example.hsiaopu.data.repository.ChatRepository
 import com.example.hsiaopu.data.repository.ShellHistoryRepository
 import com.example.hsiaopu.network.AiProviderRegistry
-import com.example.hsiaopu.network.UsageStats
 import com.example.hsiaopu.system.SysResult
 import com.example.hsiaopu.system.SystemControlExecutor
 import dagger.hilt.android.lifecycle.HiltViewModel

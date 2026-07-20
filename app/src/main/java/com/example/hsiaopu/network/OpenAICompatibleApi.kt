@@ -9,8 +9,7 @@ import retrofit2.http.GET
 import retrofit2.http.Headers
 import retrofit2.http.POST
 import retrofit2.http.Streaming
-
-interface DeepSeekApi {
+interface OpenAICompatibleApi {
     @POST("chat/completions")
     suspend fun sendMessage(@Body request: ChatRequest): ChatResponse
 

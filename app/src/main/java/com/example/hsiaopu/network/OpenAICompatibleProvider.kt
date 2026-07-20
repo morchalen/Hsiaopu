@@ -22,7 +22,7 @@ import javax.inject.Singleton
 @Singleton
 class OpenAICompatibleProvider @Inject constructor() : AiProvider {
     private val gson = Gson()
-    private var _api: DeepSeekApi? = null
+    private var _api: OpenAICompatibleApi? = null
     private var _currentSettings: AppSettings? = null
 
     override val info = ProviderInfo(
@@ -38,7 +38,7 @@ class OpenAICompatibleProvider @Inject constructor() : AiProvider {
         )
     )
 
-    private fun getApi(settings: AppSettings): DeepSeekApi {
+    private fun getApi(settings: AppSettings): OpenAICompatibleApi {
         if (_api != null && settings == _currentSettings) return _api!!
 
         val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY }
@@ -60,7 +60,7 @@ class OpenAICompatibleProvider @Inject constructor() : AiProvider {
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-            .create(DeepSeekApi::class.java)
+            .create(OpenAICompatibleApi::class.java)
         _currentSettings = settings
         return _api!!
     }
