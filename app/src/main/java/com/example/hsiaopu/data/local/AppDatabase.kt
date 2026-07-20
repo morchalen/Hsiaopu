@@ -1,6 +1,6 @@
-// 数据库设计图
 package com.example.hsiaopu.data.local   // 包名：放在 data/local 下，很规范
-
+// 数据库本身
+// 数据库实例
 import androidx.room.Database            // Room 的数据库注解
 import androidx.room.RoomDatabase        // Room 数据库基类
 
@@ -20,3 +20,21 @@ abstract class AppDatabase : RoomDatabase() {  // 👈 继承 RoomDatabase
     abstract fun messageDao(): MessageDao             // 操作消息表【返回值是MessageDao实例（通过RoomDatabase的createDao方法创建）】
     abstract fun shellHistoryDao(): ShellHistoryDao   // 操作 Shell 历史表【返回值是ShellHistoryDao实例（通过RoomDatabase的createDao方法创建）】
 }
+    //         UI(Activity/Compose)
+    //                  │
+    //                  ▼
+    //            ViewModel (VM)
+    //                  │
+    //       ┌──────────┴──────────┐
+    //       │                     │
+    //       ▼                     ▼
+    //  Repository           ShellCommandBus
+    //       │                     │
+    //       ▼                     │
+    //      DAO                    │
+    //       │                     │
+    //       ▼                     │
+    //  AppDatabase                │
+    //       │                     │
+    //       ▼                     ▼
+    //     SQLite            Shell服务/终端

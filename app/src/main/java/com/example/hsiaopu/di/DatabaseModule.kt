@@ -35,12 +35,12 @@ object DatabaseModule {
     @Singleton
     fun provideAppDatabase(
         @ApplicationContext context: Context
-    ): AppDatabase {
-        return Room.databaseBuilder(
+    ): AppDatabase {//返回值是AppDatabase类型的单例实例，并且有@Singleton注解，可以直接使用
+        return Room.databaseBuilder(//配置数据库（返回 Builder）
             context,
-            AppDatabase::class.java,
-            "hsiaopu_db"
-        ).build()
+            AppDatabase::class.java,//按这个类的定义来创建数据库实例
+            "hsiaopu_db"// 数据库文件名
+        ).build()//.build执行创建，返回 AppDatabase实例
     }
 
     /**
@@ -51,7 +51,7 @@ object DatabaseModule {
      * @param db AppDatabase 实例，由 Hilt 自动注入（复用 provideAppDatabase 提供的单例）
      * @return ConversationDao 实例
      */
-    @Provides//当有人需要这个东西时，请按这个方法创建它获取他的返回值；
+    @Provides//当有人需要这个东西时，请按这个方法创建它获取他的返回值；需要传递AppDatabase类型的db参数，这里继续依赖注入寻找类型AppDatabase的实例，发现这个是单例，直接使用
     fun provideConversationDao(db: AppDatabase): ConversationDao = db.conversationDao()
     //举例：其他一个地方使用private val conversationDao: ConversationDao；
     //意思就是说，我要创建一个参数叫conversationDao，它的类型是ConversationDao；

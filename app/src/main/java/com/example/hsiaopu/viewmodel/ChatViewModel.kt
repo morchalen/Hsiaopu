@@ -9,7 +9,6 @@ import com.example.hsiaopu.data.AppSettings
 import com.example.hsiaopu.data.ChatMessage
 import com.example.hsiaopu.data.SettingsDataStore
 import com.example.hsiaopu.data.ThemeSettings
-import com.example.hsiaopu.data.UsageInfo
 import com.example.hsiaopu.data.local.ConversationEntity
 import com.example.hsiaopu.data.local.MessageEntity
 import com.example.hsiaopu.data.ShellCommandBus
@@ -40,7 +39,7 @@ data class ChatUiState(
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val repository: ChatRepository,//同时初始化和传递形参
-    private val providerRegistry: AiProviderRegistry,
+    val providerRegistry: AiProviderRegistry,
     private val settingsDataStore: SettingsDataStore,
     private val shellHistoryRepository: ShellHistoryRepository,
     private val shellCommandBus: ShellCommandBus,

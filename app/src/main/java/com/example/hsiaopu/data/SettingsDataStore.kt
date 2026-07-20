@@ -1,5 +1,5 @@
 package com.example.hsiaopu.data
-
+//冷流
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -16,12 +16,13 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// Context.dataStore扩展属性：为 Context 创建一个 DataStore 实例，用于持久化存储键值对
-//  Preferences DataStore（存键值对）
-// 委托创建，第一次访问时初始化
-// 文件名，存在 /data/data/包名/files/datastore/
-//数据会保存在文件名为 "hsiaopu_settings" 的本地文件中
-// by lazy 委托确保只有在第一次访问时才创建，整个 App 生命周期只有一个实例
+// Context	接收者类型	这是扩展属性，相当于给 Context 类（以及它的子类，比如 Activity、Application）增加了一个新属性
+// .dataStore	属性名	以后你就可以写 context.dataStore 来访问这个存储了
+// :	类型声明	冒号后面声明这个属性的类型
+// DataStore<Preferences>	类型	这是一个接口，泛型参数是 Preferences，表示这个存储存的是键值对（不是自定义对象）
+// by	关键字	属性委托。意思是：这个属性的 getter 逻辑全部交给后面的对象去处理，我不自己写
+// preferencesDataStore(...)	委托对象	这是 AndroidX DataStore 库提供的顶层函数，负责创建并缓存 DataStore<Preferences> 实例
+// name = "hsiaopu_settings"	参数	指定存储文件名。最终文件路径是 /data/data/包名/files/datastore/hsiaopu_settings.preferences_pb
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "hsiaopu_settings")
 
 /**
@@ -35,9 +36,11 @@ class SettingsDataStore @Inject constructor(
     @ApplicationContext private val context: Context // 应用级别的 Context，不会造成内存泄漏
 ) {
     // companion object 中的内容相当于 Java 的静态成员，属于类本身而不是实例
+    //companion object 里面的东西：属于 "这个类本身"。
+    // 你不创建对象也能直接通过类名访问
     companion object {
         // ── 定义所有存储键（Key），每个 Key 对应一个要保存的数据项 ──
-
+        // xxPreferencesKey只是在定义钥匙
         // API 相关配置
         private val KEY_API_KEY = stringPreferencesKey("api_key")               // API 密钥
         private val KEY_API_ENDPOINT = stringPreferencesKey("api_endpoint")     // API 请求地址
@@ -88,7 +91,7 @@ class SettingsDataStore @Inject constructor(
     // suspend 函数是协程中的"可暂停函数"，只能在协程或其他 suspend 函数中调用
     // edit { } 方法会原子性地修改 DataStore，保证数据一致性
 
-    /** 更新 API 密钥 */
+    /** 更新或者创建 API 密钥 */
     suspend fun updateApiKey(key: String) {
         context.dataStore.edit { it[KEY_API_KEY] = key }
     }
@@ -170,7 +173,7 @@ class SettingsDataStore @Inject constructor(
     suspend fun isOnboardingCompleted(): Boolean {//suspend挂起，
         return context.dataStore.data.map { prefs ->
             prefs[KEY_ONBOARDING_COMPLETED] ?: false  // 默认 false，即首次使用会显示引导页
-        }.first()
+        }.first()//只读一次当前值，不等后续变化
     }
 
     /**
