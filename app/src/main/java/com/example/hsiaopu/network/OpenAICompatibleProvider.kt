@@ -79,7 +79,7 @@ class OpenAICompatibleProvider @Inject constructor() : AiProvider {
             // chain = 请求传递链（OkHttp 内部对象），负责拿请求、改请求、继续传
             .addInterceptor { chain ->
                 // 拿到当前请求对象（包含 URL、方法、Header、Body 等）
-                val request = chain.request()//拿到一个请求对象
+                val request = chain.request()               //拿到一个请求对象
                     .newBuilder()                           // 复制这个请求对象(原版无法修改)，准备修改
                     .addHeader("Authorization", "Bearer ${settings.apiKey}")  // 复制品:加上一个认证头的键值对
                     .build()                                // 把"复制品"变成正式的、可用的请求对象【 确认提交，生成正式请求对象】
