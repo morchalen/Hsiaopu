@@ -143,9 +143,14 @@ class OpenAICompatibleProvider @Inject constructor() : AiProvider {
             maxTokens = settings.maxTokens,          // 最大输出 Token 数
             stream = false                           // 非流式
         )
-        val response = api.sendMessage(request)
+        val response = api.sendMessage(request)//调用api里面的而不是递归哈
         // 从第一个 choice 中提取消息内容
-        return response.choices.firstOrNull()?.message?.content ?: ""
+        return response.choices.firstOrNull()?.message?.content ?: ""//取第一个回复的内容
+        //?. 叫"安全调用操作符"
+        //意思是："如果左边的对象不是 null，就继续往右边走；如果是 null，就整个表达式直接返回 null，不再往下执行。"
+        
+        //?: 叫"Elvis 操作符"
+        //意思是："如果左边表达式的结果不是 null，就取左边的值；如果是 null，就用右边的值代替。"
     }
 
     /**
@@ -167,47 +172,47 @@ class OpenAICompatibleProvider @Inject constructor() : AiProvider {
      * @return Flow<String>，每个发射的 String 是一个文本片段
      * @throws Exception 网络错误或 API 返回非 2xx 状态码时抛出
      */
-    override fun sendMessageStream(messages: List<ChatMessage>, settings: AppSettings): Flow<String> = flow {
-        val api = getApi(settings)
-        val apiMessages = messages.map { Message(role = it.role, content = it.content) }
-        val request = ChatRequest(
-            model = settings.modelName,
-            messages = apiMessages,
-            temperature = settings.temperature,
-            maxTokens = settings.maxTokens,
-            stream = true                            // 开启流式模式
-        )
+    // override fun sendMessageStream(messages: List<ChatMessage>, settings: AppSettings): Flow<String> = flow {
+    //     val api = getApi(settings)
+    //     val apiMessages = messages.map { Message(role = it.role, content = it.content) }
+    //     val request = ChatRequest(
+    //         model = settings.modelName,
+    //         messages = apiMessages,
+    //         temperature = settings.temperature,
+    //         maxTokens = settings.maxTokens,
+    //         stream = true                            // 开启流式模式
+    //     )
 
-        // 执行流式请求，返回 Response<ResponseBody>
-        val response = api.sendMessageStream(request)
-        // 检查 HTTP 状态码，非 2xx 视为失败
-        if (!response.isSuccessful) throw Exception("API error: ${response.code()}")
+    //     // 执行流式请求，返回 Response<ResponseBody>
+    //     val response = api.sendMessageStream(request)
+    //     // 检查 HTTP 状态码，非 2xx 视为失败
+    //     if (!response.isSuccessful) throw Exception("API error: ${response.code()}")
 
-        // 获取响应体（字节流）
-        val body = response.body() ?: throw Exception("Empty response")
-        // 包装为 BufferedReader 以便逐行读取
-        val reader = BufferedReader(InputStreamReader(body.byteStream()))
+    //     // 获取响应体（字节流）
+    //     val body = response.body() ?: throw Exception("Empty response")
+    //     // 包装为 BufferedReader 以便逐行读取
+    //     val reader = BufferedReader(InputStreamReader(body.byteStream()))
 
-        // 使用 useLines 自动管理资源（自动关闭流）
-        reader.useLines { lines ->
-            for (line in lines) {
-                // SSE 格式：每一行以 "data: " 开头
-                if (line.startsWith("data: ")) {
-                    val data = line.removePrefix("data: ").trim()
-                    // 流结束标记
-                    if (data == "[DONE]") break
-                    try {
-                        // 解析 JSON 并提取内容
-                        val chunk = gson.fromJson(data, StreamChunk::class.java)
-                        val content = chunk.choices?.firstOrNull()?.delta?.content ?: ""
-                        if (content.isNotEmpty()) emit(content)  // 发射内容给调用方
-                    } catch (_: Exception) {
-                        // 忽略解析异常（可能有空行或其他非 JSON 数据）
-                    }
-                }
-            }
-        }
-    }.flowOn(Dispatchers.IO)  // 切换到 IO 线程执行
+    //     // 使用 useLines 自动管理资源（自动关闭流）
+    //     reader.useLines { lines ->
+    //         for (line in lines) {
+    //             // SSE 格式：每一行以 "data: " 开头
+    //             if (line.startsWith("data: ")) {
+    //                 val data = line.removePrefix("data: ").trim()
+    //                 // 流结束标记
+    //                 if (data == "[DONE]") break
+    //                 try {
+    //                     // 解析 JSON 并提取内容
+    //                     val chunk = gson.fromJson(data, StreamChunk::class.java)
+    //                     val content = chunk.choices?.firstOrNull()?.delta?.content ?: ""
+    //                     if (content.isNotEmpty()) emit(content)  // 发射内容给调用方
+    //                 } catch (_: Exception) {
+    //                     // 忽略解析异常（可能有空行或其他非 JSON 数据）
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }.flowOn(Dispatchers.IO)  // 切换到 IO 线程执行
 
 
     /**
@@ -222,13 +227,27 @@ class OpenAICompatibleProvider @Inject constructor() : AiProvider {
      */
     suspend fun fetchModels(settings: AppSettings): List<String> {
         return try {
+            // 1. 获取 API 实例（重用之前的配置逻辑）
             val api = getApi(settings)
-            val response = api.getModels()
-            response.data.map { it.id }  // 提取模型 ID
+            
+            // 2. 调用 API 接口里的 getModels() 方法
+            val response = api.getModels()//返回值是一个string的列表哈
+            
+            // 3. 从响应中提取所有模型的 ID（如 "gpt-4", "deepseek-chat" 等）
+            response.data.map { it.id }
+            
         } catch (e: Exception) {
-            emptyList()  // 失败时返回空列表，不中断流程
+            // 4. 如果出任何差错，返回空列表，不让 App 崩溃
+            emptyList()
         }
     }
+    /**
+     * 估算调用 AI 模型的费用
+     * 当前实现返回 0，因为开源模型（如 DeepSeek）定价变动频繁，
+     * 且用户可能使用自有 API Key，费用信息不透明。
+     * 如需精确计费，可在此接入具体模型定价表。
+     */
+    fun estimateCost(model: String, promptTokens: Long, completionTokens: Long): Double = 0.0
 
     // ===== 内部数据类（用于解析流式响应 JSON） =====
     

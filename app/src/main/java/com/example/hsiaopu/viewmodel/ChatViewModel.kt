@@ -243,7 +243,7 @@ class ChatViewModel @Inject constructor(
      * 处理消息发送与工具调用的核心业务流：
      * 1. 存储用户输入。
      * 2. 构建注入了工具定义的 System Prompt。
-     * 3. 请求 AI 并流式处理返回内容。
+     * 3. 请求 AI 并处理返回内容。
      * 4. 正则解析 AI 返回内容中的 [TOOL:...] 标记并执行底层 Shell 命令。
      * 5. 若有工具执行，发起第二轮 AI 总结请求。
      * 6. 更新并持久化最终完整状态。
@@ -274,14 +274,16 @@ class ChatViewModel @Inject constructor(
                     addAll(_uiState.value.messages)
                 }
 
-                var fullContent = ""
-                providerRegistry.sendMessageStream(
-                    messages,
-                    settings
-                ).collect { chunk ->
-                    fullContent += chunk
-                    _uiState.update { it.copy(streamingContent = fullContent) }
-                }
+                // [流式写法] 暂不用，保留参考
+                // var fullContent = ""
+                // providerRegistry.sendMessageStream(
+                //     messages,
+                //     settings
+                // ).collect { chunk ->
+                //     fullContent += chunk
+                //     _uiState.update { it.copy(streamingContent = fullContent) }
+                // }
+                val fullContent = providerRegistry.sendMessage(messages, settings)
 
                 // 3. 解析并执行工具指令
                 val (processedContent, toolResults) = executeToolsInContent(fullContent)
@@ -307,15 +309,17 @@ class ChatViewModel @Inject constructor(
 
                     var secondContent = ""
                     try {
-                        providerRegistry.sendMessageStream(
-                            secondMessages,
-                            settings
-                        ).collect { chunk ->
-                            secondContent += chunk
-                            _uiState.update {
-                                it.copy(streamingContent = "$processedContent\n\n$toolResultText\n\n$secondContent")
-                            }
-                        }
+                        // [流式写法] 暂不用，保留参考
+                        // providerRegistry.sendMessageStream(
+                        //     secondMessages,
+                        //     settings
+                        // ).collect { chunk ->
+                        //     secondContent += chunk
+                        //     _uiState.update {
+                        //         it.copy(streamingContent = "$processedContent\n\n$toolResultText\n\n$secondContent")
+                        //     }
+                        // }
+                        secondContent = providerRegistry.sendMessage(secondMessages, settings)
                     } catch (_: Exception) {
                         // 次轮网络等异常时降级，保留第一轮结果及原始工具执行态
                     }

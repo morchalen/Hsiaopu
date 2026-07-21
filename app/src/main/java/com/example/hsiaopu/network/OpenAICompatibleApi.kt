@@ -24,10 +24,10 @@ interface OpenAICompatibleApi {
     suspend fun sendMessage(@Body request: ChatRequest): ChatResponse
 
     // 2. 流式对话请求（支持打字机效果）
-    @Streaming                    // ← 告诉 Retrofit：别一次性把响应读进内存
-    @POST("chat/completions")     // ← 告诉 Retrofit：用 POST 方法，地址是这个
-    @Headers("Accept: text/event-stream")  // 添加请求头← 告诉服务器：我要流式格式
-    suspend fun sendMessageStream(@Body request: ChatRequest): Response<ResponseBody>
+    // @Streaming                    // ← 告诉 Retrofit：别一次性把响应读进内存
+    // @POST("chat/completions")     // ← 告诉 Retrofit：用 POST 方法，地址是这个
+    // @Headers("Accept: text/event-stream")  // 添加请求头← 告诉服务器：我要流式格式
+    // suspend fun sendMessageStream(@Body request: ChatRequest): Response<ResponseBody>
 
     // 3. 获取具体api地址可用的模型列表
     @GET("models")

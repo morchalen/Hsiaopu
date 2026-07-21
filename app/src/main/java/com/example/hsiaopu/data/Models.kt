@@ -76,6 +76,14 @@ data class UsageInfo(
     @SerializedName("total_tokens") val totalTokens: Long = 0  // 总共消耗的 Token 数
 )
 
+// ========== 功能引导键 ==========
+
+/**
+ * 功能引导标识键
+ * 用于 DataStore 中记录哪些功能引导已被用户看过
+ */
+data class FeatureGuideKey(val key: String)
+
 // ========== 聊天消息（UI 模型） ==========
 
 /**

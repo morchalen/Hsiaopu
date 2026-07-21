@@ -43,13 +43,13 @@ interface AiProvider {
         ): String
 
     // 流式聊天（Streaming）AI 一边生成，一边返回内容。
-    fun sendMessageStream(
+    // fun sendMessageStream(
 
-        // 聊天上下文
-        messages: List<ChatMessage>,
+    //     // 聊天上下文
+    //     messages: List<ChatMessage>,
 
-        // AI 配置
-        settings: AppSettings
+    //     // AI 配置
+    //     settings: AppSettings
 
-        ): Flow<String>
+    //     ): Flow<String>
 }

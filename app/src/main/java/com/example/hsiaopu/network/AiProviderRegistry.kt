@@ -16,6 +16,7 @@ import javax.inject.Singleton
  * 使用 @Singleton 注解表示整个应用生命周期内只创建这一个实例，
  * 由 Dagger/Hilt 依赖注入框架管理。
  */
+
 @Singleton
 class AiProviderRegistry @Inject constructor(
     // 通过依赖注入获取 OpenAI 兼容的 AI 提供者实例
@@ -52,12 +53,12 @@ class AiProviderRegistry @Inject constructor(
      * @param settings 应用设置
      * @return 流式响应的 Flow，每个 String 是一个文本片段（chunk）
      */
-    fun sendMessageStream(
-        messages: List<ChatMessage>,
-        settings: AppSettings
-    ): Flow<String> {
-        return openAICompatibleProvider.sendMessageStream(messages, settings)
-    }
+    // fun sendMessageStream(
+    //     messages: List<ChatMessage>,
+    //     settings: AppSettings
+    // ): Flow<String> {
+    //     return openAICompatibleProvider.sendMessageStream(messages, settings)
+    // }
 
     /**
      * 估算调用 AI 模型的费用
