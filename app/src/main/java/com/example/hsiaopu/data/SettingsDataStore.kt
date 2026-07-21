@@ -147,20 +147,9 @@ class SettingsDataStore @Inject constructor(
      * @return true 表示已看过，false 表示还没看过
      * .first() 会从 Flow 中取出当前值并挂起等待，取到后立即返回
      */
-    suspend fun hasSeenGuide(key: FeatureGuideKey): Boolean {
-        return context.dataStore.data.map { prefs ->
-            // 从 DataStore 中读取该引导的布尔值，未找到则默认为 false（没看过）
-            prefs[booleanPreferencesKey(key.key)] ?: false
-        }.first()
-    }
 
-    /**
-     * 将某个功能引导标记为"已看"
-     * 下次调用 hasSeenGuide() 就会返回 true
-     */
-    suspend fun markGuideSeen(key: FeatureGuideKey) {
-        context.dataStore.edit { it[booleanPreferencesKey(key.key)] = true }
-    }
+
+
 
     /**
      * 这是一个挂起函数（suspend function），所以它只能在协程（Coroutine）中被调用。

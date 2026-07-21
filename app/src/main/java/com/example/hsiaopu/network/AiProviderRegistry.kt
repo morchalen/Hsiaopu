@@ -52,7 +52,7 @@ class AiProviderRegistry @Inject constructor(
      * @param messages 聊天历史记录列表
      * @param settings 应用设置
      * @return 流式响应的 Flow，每个 String 是一个文本片段（chunk）
-     */
+     *
     // fun sendMessageStream(
     //     messages: List<ChatMessage>,
     //     settings: AppSettings

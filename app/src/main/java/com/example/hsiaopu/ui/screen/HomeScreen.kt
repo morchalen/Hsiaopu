@@ -36,7 +36,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.hsiaopu.R
-import com.example.hsiaopu.data.FeatureGuideKey
 import com.example.hsiaopu.data.ChatMessage
 import com.example.hsiaopu.data.local.ConversationEntity
 import com.example.hsiaopu.ui.theme.*
