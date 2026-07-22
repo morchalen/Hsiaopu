@@ -26,7 +26,7 @@ data class ChatRequest(
     val messages: List<Message>,  // 消息列表（包含历史对话）
     val temperature: Double = 0.7,  // 温度参数
     @SerializedName("max_tokens") val maxTokens: Int = 2048,  // 最大生成 Token 数
-    val stream: Boolean = true  // 是否流式响应
+    val stream: Boolean = false  // 是否流式响应
 )
 
 /**

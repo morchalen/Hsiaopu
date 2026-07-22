@@ -14,7 +14,7 @@ import com.example.hsiaopu.data.local.MessageEntity
 import com.example.hsiaopu.data.ShellCommandBus
 import com.example.hsiaopu.data.repository.ChatRepository
 import com.example.hsiaopu.data.repository.ShellHistoryRepository
-import com.example.hsiaopu.network.AiProviderRegistry
+import com.example.hsiaopu.network.ChatClient
 import com.example.hsiaopu.system.SysResult
 import com.example.hsiaopu.system.SystemControlExecutor
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -38,13 +38,12 @@ data class ChatUiState(
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val repository: ChatRepository,//同时初始化和传递形参
-    val providerRegistry: AiProviderRegistry,
+    val chatClient: ChatClient,
     private val settingsDataStore: SettingsDataStore,
     private val shellHistoryRepository: ShellHistoryRepository,
     private val shellCommandBus: ShellCommandBus,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
-
     // 暴露给外部依赖的组件
     val dataStore: SettingsDataStore get() = settingsDataStore
     //这里的get是固定的写法，使用空格间隔一下，这个是每次访问dataStore的时候，就使用get函数，得到一个settingsDataStore对象
@@ -121,39 +120,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch { repository.updateConversationTitle(id, title) }
     }
 
-    // ==========================================================================
-    // 导出功能
-    // ==========================================================================
 
-    fun exportConversationAsMarkdown(id: Long): String {
-        val messages = _uiState.value.messages
-        val conv = _uiState.value.conversations.find { it.id == id }
-        return buildString {
-            appendLine("# ${conv?.title ?: "Conversation"}")
-            appendLine()
-            messages.forEach { msg ->
-                val role = if (msg.role == "user") "You" else "AI"
-                appendLine("**$role**:")
-                appendLine(msg.content)
-                appendLine()
-            }
-        }
-    }
-
-    fun exportConversationAsJson(id: Long): String {
-        val conv = _uiState.value.conversations.find { it.id == id }
-        val messages = _uiState.value.messages.map { msg ->
-            """{"role":"${msg.role}","content":${escapeJson(msg.content)},"timestamp":${msg.timestamp}}"""
-        }
-        return """{"title":"${conv?.title ?: ""}","messages":[${messages.joinToString(",")}]}"""
-    }
-
-    private fun escapeJson(s: String): String {
-        return "\"" + s.replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r") + "\""
-    }
 
     // ==========================================================================
     // 设置与主题更新
@@ -163,79 +130,73 @@ class ChatViewModel @Inject constructor(
         _settings.update { it.copy(apiKey = key) }
         viewModelScope.launch { settingsDataStore.updateApiKey(key) }
     }
-
     fun updateApiEndpoint(endpoint: String) {
         _settings.update { it.copy(apiEndpoint = endpoint) }
         viewModelScope.launch { settingsDataStore.updateApiEndpoint(endpoint) }
     }
-
     fun updateModelName(model: String) {
         _settings.update { it.copy(modelName = model) }
         viewModelScope.launch { settingsDataStore.updateModelName(model) }
     }
-
     fun updateSystemPrompt(prompt: String) {
         _settings.update { it.copy(systemPrompt = prompt) }
         viewModelScope.launch { settingsDataStore.updateSystemPrompt(prompt) }
     }
-
     fun updateTemperature(temp: Double) {
         _settings.update { it.copy(temperature = temp) }
         viewModelScope.launch { settingsDataStore.updateTemperature(temp) }
     }
-
     fun updateMaxTokens(tokens: Int) {
         _settings.update { it.copy(maxTokens = tokens) }
         viewModelScope.launch { settingsDataStore.updateMaxTokens(tokens) }
     }
-
     fun updateThemeMode(mode: String) {
         _themeSettings.update { it.copy(themeMode = mode) }
         viewModelScope.launch { settingsDataStore.updateThemeMode(mode) }
     }
-
     fun updateFontScale(scale: Int) {
         _themeSettings.update { it.copy(fontScale = scale) }
         viewModelScope.launch { settingsDataStore.updateFontScale(scale) }
     }
-
     fun refreshModels() {
         viewModelScope.launch {
             val currentSettings = _settings.value
-            val fetchedModels = providerRegistry.fetchModels(currentSettings)
+            val fetchedModels = chatClient.fetchModels(currentSettings)
             _models.value = fetchedModels
         }
     }
 
-    // ==========================================================================
     // 核心发送逻辑与工具调用
-    // ==========================================================================
-
     fun sendMessage(content: String) {
+        // 1️⃣ 获取当前设置快照（API Key、模型名等）
         val currentSettings = _settings.value
+        // 2️⃣ 获取当前选中的对话 ID
         val convId = _uiState.value.currentConversationId
 
+        // 3️⃣ 防重复：如果正在加载中（AI 正在回复），忽略本次点击
         if (_uiState.value.isLoading) return
 
+        // 4️⃣ 校验：API Key 没填 → 显示错误，不发送
         if (currentSettings.apiKey.isBlank()) {
             _uiState.update { it.copy(error = "请在设置中填写 API Key") }
             return
         }
 
-        // if (!_uiState.value.isOnline) {
-        //     _uiState.update { it.copy(error = "网络不可用，消息将在联网后发送") }
-        // }
-
-        // 若当前无激活对话，则自动创建并发送
+        // 5️⃣ 核心分支：有没有当前对话？
         if (convId == null) {
+            // 🔹 没有 → 自动创建一个新对话
             viewModelScope.launch {
+                // 创建对话，标题从用户输入内容截取（最多30字符）
                 val id = repository.createConversation(getConversationTitle(content))
+                // 更新 UI 状态：当前对话 ID 指向这个新创建的
                 _uiState.update { it.copy(currentConversationId = id) }
+                // 执行真正的发送逻辑
                 doSendWithTools(id, content, currentSettings)
             }
             return
         }
 
+        // 🔹 有 → 直接在当前对话下发送
         doSendWithTools(convId, content, currentSettings)
     }
 
@@ -255,7 +216,7 @@ class ChatViewModel @Inject constructor(
             isLoading = true,
             streamingContent = "",
             error = null
-        ) }
+        )}
 
         viewModelScope.launch {
             repository.insertMessage(MessageEntity(
@@ -276,14 +237,14 @@ class ChatViewModel @Inject constructor(
 
                 // [流式写法] 暂不用，保留参考
                 // var fullContent = ""
-                // providerRegistry.sendMessageStream(
+                // chatClient.sendMessageStream(
                 //     messages,
                 //     settings
                 // ).collect { chunk ->
                 //     fullContent += chunk
                 //     _uiState.update { it.copy(streamingContent = fullContent) }
                 // }
-                val fullContent = providerRegistry.sendMessage(messages, settings)
+                val fullContent = chatClient.sendMessage(messages, settings)
 
                 // 3. 解析并执行工具指令
                 val (processedContent, toolResults) = executeToolsInContent(fullContent)
@@ -310,7 +271,7 @@ class ChatViewModel @Inject constructor(
                     var secondContent = ""
                     try {
                         // [流式写法] 暂不用，保留参考
-                        // providerRegistry.sendMessageStream(
+                        // chatClient.sendMessageStream(
                         //     secondMessages,
                         //     settings
                         // ).collect { chunk ->
@@ -319,7 +280,7 @@ class ChatViewModel @Inject constructor(
                         //         it.copy(streamingContent = "$processedContent\n\n$toolResultText\n\n$secondContent")
                         //     }
                         // }
-                        secondContent = providerRegistry.sendMessage(secondMessages, settings)
+                        secondContent = chatClient.sendMessage(secondMessages, settings)
                     } catch (_: Exception) {
                         // 次轮网络等异常时降级，保留第一轮结果及原始工具执行态
                     }
@@ -356,7 +317,7 @@ class ChatViewModel @Inject constructor(
             }
         }
     }
-
+    //让ai返回shell工具指令
     private fun buildToolSystemPrompt(userPrompt: String): String {
         val tools = """
         你是一个运行在 Android 设备上的 AI 助手。你可以通过 Shizuku 控制设备。
@@ -415,7 +376,7 @@ class ChatViewModel @Inject constructor(
 
         return if (userPrompt.isNotBlank()) "$userPrompt\n\n$tools" else tools
     }
-
+    // 执行shell工具指令
     private suspend fun executeToolsInContent(content: String): Pair<String, List<SysResult>> {
         val toolRegex = Regex("""\[TOOL:([a-z_]+)(?::([^\]]*))?\]""")
         val matches = toolRegex.findAll(content)
@@ -451,7 +412,7 @@ class ChatViewModel @Inject constructor(
 
         return Pair(processed, results)
     }
-
+    // 解析shell工具指令参数
     private fun parseParams(paramsStr: String): Map<String, String> {
         if (paramsStr.isBlank()) return emptyMap()
         return paramsStr.split(",").mapNotNull { part ->
@@ -535,10 +496,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    /**
-     * 将封装好的命令通过总线分发，并挂起等待 Shell 环境执行完毕。
-     * 最大等待时长 30 秒。
-     */
+    //将封装好的命令通过总线分发，并挂起等待 Shell 环境执行完毕。
     private suspend fun executeToolAction(action: String, params: Map<String, String>): SysResult {
         val shellCommand = getShellCommandForAction(action, params)
         if (shellCommand == null) {
@@ -563,12 +521,14 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    // 清除错误信息
     fun clearError() {
         _uiState.update { it.copy(error = null) }
     }
 
+    // 从对话内容中提取标题
     private fun getConversationTitle(content: String): String {
         val cleaned = content.replace("\n", " ").trim()
-        return if (cleaned.length > 30) cleaned.take(30) + "..." else cleaned
+        return if (cleaned.length > 10) cleaned.take(10) + "..." else cleaned
     }
 }

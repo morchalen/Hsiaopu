@@ -49,7 +49,7 @@ import com.example.hsiaopu.data.ChatMessage
 import com.example.hsiaopu.data.SettingsDataStore
 import com.example.hsiaopu.data.ShellCommandBus
 import com.example.hsiaopu.data.repository.ShellHistoryRepository
-import com.example.hsiaopu.network.AiProviderRegistry
+import com.example.hsiaopu.network.ChatClient
 import com.example.hsiaopu.ui.theme.TerminalBgDark
 import com.example.hsiaopu.ui.theme.TerminalBgLight
 import com.example.hsiaopu.ui.theme.TerminalErrorDark
@@ -76,7 +76,7 @@ fun ShellScreen(
     settingsDataStore: SettingsDataStore,// 设置数据存储
     shellHistoryRepository: ShellHistoryRepository,// 命令历史记录仓库
     shellCommandBus: ShellCommandBus,// 命令总线
-    aiProviderRegistry: AiProviderRegistry,// AI 提供器注册器
+    chatClient: ChatClient,// 聊天客户端
     appSettings: AppSettings// 应用设置
 ) {
     val context = LocalContext.current // 获取当前上下文，用来指定当前页面而不是其他页面，context：这个 App 当前所有状态信息
@@ -175,7 +175,7 @@ fun ShellScreen(
                                             ChatMessage("system", "你是一个 Shell 命令输出解读专家。请用简洁的中文解释以下命令执行结果的含义，不要超过100字。"),
                                             ChatMessage("user", "命令: ${lastResult.command}\n输出: ${lastResult.stdout}\n错误: ${lastResult.stderr}\n退出码: ${lastResult.exitCode}")
                                         )
-                                        val interpretation = aiProviderRegistry.sendMessage(messages, appSettings)
+                                        val interpretation = chatClient.sendMessage(messages, appSettings)
                                         val interpretationResult = ShellResult(
                                             command = "[解读]",
                                             stdout = interpretation,
@@ -454,7 +454,7 @@ fun ShellScreen(
                                         ChatMessage("system", "你是一个 Shell 命令生成器。根据用户的自然语言描述，返回一个可直接执行的 Shell 命令。只返回命令本身，不要任何解释或额外文本。如果无法生成命令，返回 'ERROR'。"),
                                         ChatMessage("user", smartGenerateInput)
                                     )
-                                    val generatedCommand = aiProviderRegistry.sendMessage(messages, appSettings).trim()
+                                    val generatedCommand = chatClient.sendMessage(messages, appSettings).trim()
                                     if (generatedCommand.equals("ERROR", ignoreCase = true)) {
                                         smartGenerateError = "未识别到对应的 Shell 指令，请重新描述"
                                     } else {

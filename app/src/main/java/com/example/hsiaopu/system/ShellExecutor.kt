@@ -14,13 +14,7 @@ data class ShellResult(
     val exitCode: Int = -1,     // 退出码：0=成功，非0=失败，默认 -1（未执行）
     val timestamp: Long = System.currentTimeMillis()  // 执行时间戳，单位毫秒
 ) {
-        /**
-         * 判断命令是否执行成功
-         *
-         * 当 exitCode == 0 时表示执行成功，否则表示执行失败
-         *
-         * @return true 表示执行成功，false 表示执行失败
-         */
+    //判断命令是否执行成功；当 exitCode == 0 时表示执行成功，否则表示执行失败
     val isSuccess: Boolean get() = exitCode == 0
 }
 
@@ -30,10 +24,10 @@ data class PredefinedCommand(//预定义命令
     val description: String,//命令描述
     val category: String//命令分类
 )
-//单例
+//单例类object
 //命令执行器
 object ShellExecutor {
-
+    //预定义命令列表
     val predefinedCommands: List<PredefinedCommand> = listOf(
         // System Info
         PredefinedCommand("CPU 信息", "cat /proc/cpuinfo", "查看 CPU 详细信息", "系统信息"),
@@ -69,11 +63,15 @@ object ShellExecutor {
         PredefinedCommand("显示信息", "dumpsys display", "查看显示信息", "硬件"),
         PredefinedCommand("音频信息", "dumpsys audio", "查看音频信息", "硬件")
     )
+
     //真正执行命令的方法【返回值是Flow<ShellResult>类型的，也就是一个ShellResult类型的流】
     fun execute(command: String): Flow<ShellResult> = flow {
         val result = runCommand(command)
         emit(result)// 发送执行结果到流
     }.flowOn(Dispatchers.IO)
+    //flowOn(Dispatchers.IO) 指定它上游的所有代码，在 IO 线程池里执行；
+    //它下游的代码（比如 collect）在调用 Flow 的那个线程里执行。
+
     //执行命令的真正真正的方法
     //:ShellResult 这个是返回值
     //在 suspend 函数后面加 =，然后写 withContext(Dispatchers.IO) { ... }，大括号里放耗时操作，最后一行就是返回值。 ✅
@@ -98,18 +96,18 @@ object ShellExecutor {
             }
 
             // 使用统一的 ShizukuHelper.exec()，绕过 Shizuku 13+ 的 @RestrictTo 限制
-            val stdout = ShizukuHelper.exec(command)
+            val stdout = ShizukuHelper.exec(command)// shell 进程中执行 sh -c '命令'[shell -command ]：启动一个新的 shell 进程，并执行 -c 后面跟着的那条命令。
             return@withContext ShellResult(
                 command = command,
-                stdout = stdout,
-                stderr = "",
-                exitCode = 0
-            )
+                stdout = stdout,        // ✅ 动态获取的
+                stderr = "",            // 没有错误，就是空
+                exitCode = 0            // 0 表示成功
+            )//我只退出 withContext 这个代码块，并把后面的值作为 withContext 的执行结果返回出去。
         } catch (e: Exception) {
             return@withContext ShellResult(
                 command = command,
                 stdout = "",
-                stderr = "Error: ${e.message}",
+                stderr = "shell命令执行错误信息: ${e.message}",
                 exitCode = 1
             )
         }
