@@ -193,7 +193,6 @@ fun PhoneLayout(chatViewModel: ChatViewModel) {
                     1 -> ShellScreen(
                         settingsDataStore = chatViewModel.dataStore,
                         shellHistoryRepository = chatViewModel.shellRepo,
-                        shellCommandBus = chatViewModel.cmdBus,
                         chatClient = chatViewModel.chatClient,
                         appSettings = chatViewModel.getCurrentSettings()
                     )
@@ -269,7 +268,6 @@ Scaffold { innerPadding ->
                     1 -> ShellScreen(
                         settingsDataStore = chatViewModel.dataStore,// 传递数据存储实例
                         shellHistoryRepository = chatViewModel.shellRepo,// 传递历史记录仓库实例
-                        shellCommandBus = chatViewModel.cmdBus,// 传递命令总线实例
                         chatClient = chatViewModel.chatClient,// 传递 AI 提供器注册器实例
                         appSettings = chatViewModel.getCurrentSettings()// 传递当前应用设置实例
                     )

@@ -11,27 +11,15 @@ import com.example.hsiaopu.data.SettingsDataStore
 import com.example.hsiaopu.data.ThemeSettings
 import com.example.hsiaopu.data.local.ConversationEntity
 import com.example.hsiaopu.data.local.MessageEntity
-import com.example.hsiaopu.data.ShellCommandBus
 import com.example.hsiaopu.data.repository.ChatRepository
 import com.example.hsiaopu.data.repository.ShellHistoryRepository
 import com.example.hsiaopu.network.ChatClient
-import com.example.hsiaopu.system.SysResult
-import com.example.hsiaopu.system.SystemControlExecutor
+import com.example.hsiaopu.system.ShellExecutor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
-//数据类，用于存储聊天界面的状态
-data class ChatUiState(
-    val conversations: List<ConversationEntity> = emptyList(),//对话的列表
-    val currentConversationId: Long? = null,//当前选中的对话id
-    val messages: List<ChatMessage> = emptyList(),//当前选中的对话的消息列表
-    val isLoading: Boolean = false,//是否正在加载中
-    val streamingContent: String = "",//流式内容
-    val error: String? = null//错误信息
-)
 
 //负责管理聊天会话、消息收发、AI 服务提供商调度以及工具指令执行的核心 ViewModel。
 // @Inject 就是自动使用后面的constructor进行初始化
@@ -41,14 +29,30 @@ class ChatViewModel @Inject constructor(
     val chatClient: ChatClient,
     private val settingsDataStore: SettingsDataStore,
     private val shellHistoryRepository: ShellHistoryRepository,
-    private val shellCommandBus: ShellCommandBus,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
+
+    // 数据类，用于存储聊天界面的状态
+    data class ChatUiState(
+        val conversations: List<ConversationEntity> = emptyList(),//对话的列表
+        val currentConversationId: Long? = null,//当前选中的对话id
+        val messages: List<ChatMessage> = emptyList(),//当前选中的对话的消息列表
+        val isLoading: Boolean = false,//是否正在加载中
+        val streamingContent: String = "",//流式内容
+        val error: String? = null//错误信息
+    )
+
+    // Shell 命令执行结果
+    data class SysResult(
+        val action: String,
+        val success: Boolean,
+        val message: String,
+        val output: String
+    )
     // 暴露给外部依赖的组件
     val dataStore: SettingsDataStore get() = settingsDataStore
     //这里的get是固定的写法，使用空格间隔一下，这个是每次访问dataStore的时候，就使用get函数，得到一个settingsDataStore对象
     val shellRepo: ShellHistoryRepository get() = shellHistoryRepository
-    val cmdBus: ShellCommandBus get() = shellCommandBus
 
     /** 获取当前应用设置的同步快照 */
     fun getCurrentSettings(): AppSettings = _settings.value
@@ -320,65 +324,29 @@ class ChatViewModel @Inject constructor(
     //让ai返回shell工具指令
     private fun buildToolSystemPrompt(userPrompt: String): String {
         val tools = """
-        你是一个运行在 Android 设备上的 AI 助手。你可以通过 Shizuku 控制设备。
+        你是一个运行在 Android 设备上的 AI 助手。你可以通过 Shizuku 执行 Shell 命令来控制设备。
 
-        你可以输出以下格式的标记来执行系统命令（每行一个，放在回复末尾）：
-        [TOOL:action_name:param1=value1,param2=value2]
+        当你需要执行 Shell 命令时，在回复中包含以下格式的标记（每行一个，放在回复末尾）：
+        [SHELL:具体的 Shell 命令]
 
-        可用工具列表：
-
-        === 开关控制 ===
-        enable_wifi, disable_wifi, enable_bluetooth, disable_bluetooth, 
-        enable_hotspot:ssid=xxx,password=xxx, disable_hotspot,
-        enable_mobile_data, disable_mobile_data,
-        enable_airplane_mode, disable_airplane_mode,
-        enable_nfc, disable_nfc
-
-        === 调节 ===
-        set_brightness:level=128 (1-255)
-        set_volume:stream=music,level=8 (stream: music/ring/alarm, level: 0-15)
-
-        === 查询 ===
-        get_cpu_info, get_memory_info, get_uptime, get_kernel_version,
-        get_battery_info, get_cpu_temp, get_ip_address, get_wifi_networks,
-        get_disk_usage, get_top_processes, get_network_interfaces,
-        get_sensor_list, get_display_info, get_installed_packages,
-        get_running_services, get_routing_table, get_dns_info, get_mount_info,
-        ping_test:host=8.8.8.8,count=4
-
-        get_prop:key=ro.build.version.release
-        get_volume:stream=music
-        get_brightness
-
-        === 应用管理 ===
-        force_stop:package=com.example.app
-        clear_data:package=com.example.app
-        uninstall:package=com.example.app
-
-        === 文件操作 ===
-        list_files:path=/sdcard
-        read_file:path=/sdcard/test.txt
-        delete_file:path=/sdcard/test.txt
-
-        === 截屏 ===
-        screenshot:path=/sdcard/Pictures/screenshot.png
-
-        === 系统 ===
-        reboot, reboot_recovery, reboot_bootloader, shutdown
+        例如：用户说"打开 WiFi"，你输出 [SHELL:svc wifi enable]
+        例如：用户说"查看电量"，你输出 [SHELL:dumpsys battery]
+        例如：用户说"重启手机"，你输出 [SHELL:reboot]
 
         规则：
-        1. 当用户要求操作设备时，先输出 [TOOL:xxx] 执行命令，然后根据结果回复用户
-        2. 查询类命令直接输出结果即可
-        3. 危险操作（重启、关机）需要先向用户确认
-        4. 如果没有匹配的工具，告诉用户暂不支持
+        1. 当用户要求操作设备时，先输出 [SHELL:xxx] 执行命令，然后根据执行结果回复用户
+        2. 查询类命令直接输出 [SHELL:xxx] 并获取结果即可
+        3. 危险操作（重启、关机等）需要先向用户确认
+        4. 如果你不确定具体的 Shell 命令，告诉用户暂不支持
         5. 用中文回复用户
         """.trimIndent()
 
         return if (userPrompt.isNotBlank()) "$userPrompt\n\n$tools" else tools
     }
-    // 执行shell工具指令
+
+    // 匹配ai回复的格式
     private suspend fun executeToolsInContent(content: String): Pair<String, List<SysResult>> {
-        val toolRegex = Regex("""\[TOOL:([a-z_]+)(?::([^\]]*))?\]""")
+        val toolRegex = Regex("""\[SHELL:([^\]]+)\]""")
         val matches = toolRegex.findAll(content)
         
         if (!matches.any()) return Pair(content, emptyList())
@@ -387,11 +355,8 @@ class ChatViewModel @Inject constructor(
         var processed = content
 
         for (match in matches) {
-            val action = match.groupValues[1]
-            val paramsStr = match.groupValues.getOrNull(2) ?: ""
-            val params = parseParams(paramsStr)
-
-            val result = executeToolAction(action, params)
+            val shellCommand = match.groupValues[1].trim()
+            val result = executeToolAction(shellCommand)
             results.add(result)
 
             val replacement = buildString {
@@ -412,112 +377,45 @@ class ChatViewModel @Inject constructor(
 
         return Pair(processed, results)
     }
-    // 解析shell工具指令参数
-    private fun parseParams(paramsStr: String): Map<String, String> {
-        if (paramsStr.isBlank()) return emptyMap()
-        return paramsStr.split(",").mapNotNull { part ->
-            val eq = part.indexOf('=')
-            if (eq > 0) {
-                part.substring(0, eq).trim() to part.substring(eq + 1).trim()
-            } else null
-        }.toMap()
-    }
+    
+    // [暂不用] 解析 shell 工具指令参数（当前使用 [SHELL:原始命令] 格式，无需解析参数）
+    // private fun parseParams(paramsStr: String): Map<String, String> {
+    //     if (paramsStr.isBlank()) return emptyMap()
+    //     return paramsStr.split(",").mapNotNull { part ->
+    //         val eq = part.indexOf('=')
+    //         if (eq > 0) {
+    //             part.substring(0, eq).trim() to part.substring(eq + 1).trim()
+    //         } else null
+    //     }.toMap()
+    // }
 
-    /** 工具标识到底层 Shell 指令的映射。 */
-    private fun getShellCommandForAction(action: String, params: Map<String, String>): String? {
-        return when (action) {
-            "enable_wifi" -> "svc wifi enable"
-            "disable_wifi" -> "svc wifi disable"
-            "enable_bluetooth" -> "svc bluetooth enable"
-            "disable_bluetooth" -> "svc bluetooth disable"
-            "enable_hotspot" -> {
-                val ssid = params["ssid"] ?: "Hsiaopu"
-                val password = params["password"] ?: "12345678"
-                "cmd wifi start-softap \"$ssid\" wpa2-psk \"$password\""
-            }
-            "disable_hotspot" -> "cmd wifi stop-softap"
-            "enable_mobile_data" -> "svc data enable"
-            "disable_mobile_data" -> "svc data disable"
-            "enable_airplane_mode" -> "settings put global airplane_mode_on 1 && am broadcast -a android.intent.action.AIRPLANE_MODE"
-            "disable_airplane_mode" -> "settings put global airplane_mode_on 0 && am broadcast -a android.intent.action.AIRPLANE_MODE"
-            "enable_nfc" -> "svc nfc enable"
-            "disable_nfc" -> "svc nfc disable"
+    // [暂不用] 工具标识到 Shell 指令的映射（当前 AI 直接输出原始 Shell 命令，无需映射）
+    // private fun getShellCommandForAction(action: String, params: Map<String, String>): String? {
+    //     return when (action) {
+    //         "enable_wifi" -> "svc wifi enable"
+    //         "disable_wifi" -> "svc wifi disable"
+    //         ...
+    //     }
+    // }
 
-            "set_brightness" -> "settings put system screen_brightness ${params["level"] ?: "128"}"
-            "get_brightness" -> "settings get system screen_brightness"
-            "set_volume" -> {
-                val stream = params["stream"] ?: "music"
-                val streamCode = when (stream) { "ring" -> 2; "alarm" -> 4; else -> 3 }
-                "media volume --stream $streamCode --set ${params["level"] ?: "8"}"
-            }
-            "get_volume" -> {
-                val stream = params["stream"] ?: "music"
-                val streamCode = when (stream) { "ring" -> 2; "alarm" -> 4; else -> 3 }
-                "media volume --stream $streamCode --get"
-            }
-
-            "get_cpu_info" -> "cat /proc/cpuinfo | head -40"
-            "get_memory_info" -> "cat /proc/meminfo | head -20"
-            "get_uptime" -> "cat /proc/uptime"
-            "get_kernel_version" -> "uname -a"
-            "get_battery_info" -> "dumpsys battery"
-            "get_cpu_temp" -> "cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null || echo 'N/A'"
-            "get_ip_address" -> "ip addr show wlan0 2>/dev/null | grep 'inet ' || ip addr show eth0 2>/dev/null | grep 'inet '"
-            "get_wifi_networks" -> "dumpsys wifi | grep 'SSID:' | head -10"
-            "get_disk_usage" -> "df -h"
-            "get_top_processes" -> "ps -A -o PID,USER,NAME | tail -20"
-            "get_network_interfaces" -> "ip addr show"
-            "get_sensor_list" -> "dumpsys sensorservice | grep -A 1 'Sensor List'"
-            "get_display_info" -> "dumpsys window displays | head -30"
-            "get_installed_packages" -> "pm list packages | tail -30"
-            "get_running_services" -> "dumpsys activity services | grep 'ServiceRecord' | tail -20"
-            "get_routing_table" -> "ip route show"
-            "get_dns_info" -> "getprop net.dns1 && getprop net.dns2"
-            "get_mount_info" -> "mount | grep -v '^rootfs'"
-            "get_prop" -> "getprop ${params["key"] ?: ""}"
-            "ping_test" -> "ping -c ${params["count"] ?: "4"} -W 2 ${params["host"] ?: "8.8.8.8"}"
-
-            "force_stop" -> "am force-stop ${params["package"] ?: ""}"
-            "clear_data" -> "pm clear ${params["package"] ?: ""}"
-            "uninstall" -> "pm uninstall ${params["package"] ?: ""}"
-
-            "list_files" -> "ls -lah ${params["path"] ?: "/sdcard"}"
-            "read_file" -> "cat ${params["path"] ?: ""} | head -50"
-            "delete_file" -> "rm -f ${params["path"] ?: ""}"
-
-            "screenshot" -> "screencap -p ${params["path"] ?: "/sdcard/Pictures/screenshot_hsiaopu.png"}"
-
-            "reboot" -> "reboot"
-            "reboot_recovery" -> "reboot recovery"
-            "reboot_bootloader" -> "reboot bootloader"
-            "shutdown" -> "reboot -p"
-
-            else -> null
-        }
-    }
-
-    //将封装好的命令通过总线分发，并挂起等待 Shell 环境执行完毕。
-    private suspend fun executeToolAction(action: String, params: Map<String, String>): SysResult {
-        val shellCommand = getShellCommandForAction(action, params)
-        if (shellCommand == null) {
-            return SysResult(action, false, "不支持的操作: $action", "", false)
-        }
-
-        shellCommandBus.sendCommand(shellCommand)
-
+    // 本地执行 shell 命令，同时将结果写入 ShellHistory 数据库供 Shell 页面显示
+    private suspend fun executeToolAction(shellCommand: String): SysResult {
         return try {
             val shellResult = kotlinx.coroutines.withTimeout(30000) {
-                shellCommandBus.results.first { it.command == shellCommand }
+                ShellExecutor.execute(shellCommand).first()
             }
+            // 写入 ShellHistory 数据库，Shell 页面从 Room Flow 读取后自动显示
+            shellHistoryRepository.insertHistory(shellResult)
             SysResult(
-                action,
+                shellCommand,
                 shellResult.isSuccess,
                 shellResult.stdout.ifEmpty { shellResult.stderr },
-                shellResult.stdout,
-                false
+                shellResult.stdout
             )
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-            SysResult(action, false, "Shell 执行超时，请确保 Shell 页面已打开", "", false)
+            SysResult(shellCommand, false, "Shell 执行超时", "")
+        } catch (e: Exception) {
+            SysResult(shellCommand, false, "Shell 执行失败: ${e.message}", "")
         }
     }
 

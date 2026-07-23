@@ -47,7 +47,6 @@ import com.example.hsiaopu.system.ShizukuHelper
 import com.example.hsiaopu.data.AppSettings
 import com.example.hsiaopu.data.ChatMessage
 import com.example.hsiaopu.data.SettingsDataStore
-import com.example.hsiaopu.data.ShellCommandBus
 import com.example.hsiaopu.data.repository.ShellHistoryRepository
 import com.example.hsiaopu.network.ChatClient
 import com.example.hsiaopu.ui.theme.TerminalBgDark
@@ -75,7 +74,6 @@ import kotlinx.coroutines.launch
 fun ShellScreen(
     settingsDataStore: SettingsDataStore,// 设置数据存储
     shellHistoryRepository: ShellHistoryRepository,// 命令历史记录仓库
-    shellCommandBus: ShellCommandBus,// 命令总线
     chatClient: ChatClient,// 聊天客户端
     appSettings: AppSettings// 应用设置
 ) {
@@ -106,35 +104,14 @@ fun ShellScreen(
     val shizukuAvailable = remember { mutableStateOf(ShizukuHelper.isAvailable()) } // Shizuku 是否可用
     val shizukuPermission = remember { mutableStateOf(ShizukuHelper.hasPermission()) } // Shizuku 是否有权限
 
-    val history = remember { mutableStateListOf<ShellResult>() } // 命令执行历史列表
+    // 从 ShellHistory 数据库读取历史记录，Room Flow 自动在 AI/手动执行写入后刷新
+    val history by shellHistoryRepository.getAllHistory().collectAsState(initial = emptyList())
     val listState = rememberLazyListState() // 列表滚动状态
 
-    // 自动滚动到底部（新命令执行时带动画）（当history.size, isRunning 变化时触发）
+    // 自动滚动到底部（初始打开 / 新命令执行时带动画）
     LaunchedEffect(history.size, isRunning) {
         if (history.isNotEmpty()) {
             listState.animateScrollToItem(history.size)
-        }
-    }
-
-    // 加载保存的历史记录，加载完毕后立即跳到底部（无动画）（Unit：仅仅在启动时加载一次）
-    LaunchedEffect(Unit) {
-        val savedHistory = shellHistoryRepository.getAllHistorySync()// 从数据库中同步获取所有命令历史记录
-        history.addAll(savedHistory)// 将数据库中的历史记录添加到列表中
-        if (history.isNotEmpty()) {
-            listState.scrollToItem(history.size)//直接跳转，而不是动画滚动
-        }
-    }
-
-    // 监听命令通道，执行来自 AI 的命令（Unit：仅仅在启动时加载一次）
-    //原因是：Unit = 永远不变的值 = 一直开启监听
-    LaunchedEffect(Unit) {//是启动一个协程，专门用来持续监听这个热流。
-        //.collect是热流自带，用于收集数据
-        shellCommandBus.commands.collect { cmd ->
-            // ->前面写的是收集到的数据，然后我们命名为临时名字cmd，然后我们以cmd为名字进行操作，如果只有一个参数也可以简写为it来表示这个参数
-            //去执行这个命令执行的结果是
-            executeCommand(
-                cmd,scope,history,shellHistoryRepository,shellCommandBus,{},{ isRunning = it }
-            )
         }
     }
 
@@ -182,7 +159,6 @@ fun ShellScreen(
                                             stderr = "",
                                             exitCode = 0
                                         )
-                                        history.add(interpretationResult)
                                         shellHistoryRepository.insertHistory(interpretationResult)
                                     } catch (e: Exception) {
                                         val errorResult = ShellResult(
@@ -191,7 +167,6 @@ fun ShellScreen(
                                             stderr = "解读失败: ${e.message}",
                                             exitCode = -1
                                         )
-                                        history.add(errorResult)
                                         shellHistoryRepository.insertHistory(errorResult)
                                     }
                                     isInterpreting = false
@@ -212,7 +187,7 @@ fun ShellScreen(
                         onClick = {
                             scope.launch {
                                 shellHistoryRepository.clearAllHistory()
-                                history.clear()
+                                // 数据库清空后，Flow 自动更新 UI 列表
                             }
                         },
                         enabled = history.isNotEmpty()
@@ -351,9 +326,7 @@ fun ShellScreen(
                                         executeCommand(
                                             command,
                                             scope,
-                                            history,
                                             shellHistoryRepository,
-                                            shellCommandBus,
                                             { command = "" },
                                             { isRunning = it }
                                         )
@@ -379,9 +352,7 @@ fun ShellScreen(
                                 executeCommand(
                                     command,
                                     scope,
-                                    history,
                                     shellHistoryRepository,
-                                    shellCommandBus,
                                     { command = "" },
                                     { isRunning = it }
                                 )
@@ -408,9 +379,7 @@ fun ShellScreen(
                         executeCommand(
                             cmd,
                             scope,
-                            history,
                             shellHistoryRepository,
-                            shellCommandBus,
                             {},
                             { isRunning = it }
                         )
@@ -486,11 +455,9 @@ fun ShellScreen(
  * @param onRunningChanged 执行状态回调
  */
 private fun executeCommand(
-    cmd: String,//从热流收集到的指令string类型的
+    cmd: String,//从输入框获取的指令string类型的
     scope: kotlinx.coroutines.CoroutineScope,//协程作用域，用于启动新的协程
-    history: androidx.compose.runtime.snapshots.SnapshotStateList<ShellResult>,//显示历史记录的列表
     shellHistoryRepository: ShellHistoryRepository,//持久化存储历史记录的仓库
-    shellCommandBus: ShellCommandBus,//热流，用于发送命令和结果
     onClearInput: () -> Unit,//执行成功后清空输入框
     onRunningChanged: (Boolean) -> Unit//执行状态回调
 ) {
@@ -498,14 +465,11 @@ private fun executeCommand(
     onClearInput()//执行成功后清空输入框
     onRunningChanged(true)//执行状态回调，设置为true表示正在执行
     // 启动一个协程，用于执行命令
-    // 当命令执行完成后，将结果添加到显示列表、持久化存储、通知其他组件
-    // 并将执行状态回调设置为false表示执行完成
+    // 当命令执行完成后，将结果持久化存储到 ShellHistory 数据库，
+    // Shell 页面从 Room Flow 自动读取并更新显示，无需手动操作列表
     scope.launch {
-        //object ShellExecutor是单例，全局只有一个实例，所以可以直接用类名调用它的方法，不需要创建实例。 ✅
-        ShellExecutor.execute(cmdToRun).collect { result ->//把前面的返回值作为这里的形参result在后续使用
-            history.add(result) // 追加到列表
-            shellHistoryRepository.insertHistory(result) // 持久化存储
-            shellCommandBus.sendResult(result) //发送热流，广播我们的结果出去，通知其他组件更新显示
+        ShellExecutor.execute(cmdToRun).collect { result ->
+            shellHistoryRepository.insertHistory(result) // 写入数据库，Flow 自动刷新 UI
         }
         onRunningChanged(false)//执行状态回调，设置为false表示执行完成
     }
