@@ -1,6 +1,6 @@
 # Hsiaopu (小不)
 
-> 面向 Android 极客开发者的全功能 AI 工作台 — 集成多模型对话、代码审查、Shizuku Shell 终端、设备工具箱于一体
+> 面向 Android 极客的全功能 AI 工作台 — 集成多模型对话、代码审查、Shizuku Shell 终端、设备工具箱于一体
 
 ---
 
