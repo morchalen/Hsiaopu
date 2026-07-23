@@ -12,6 +12,16 @@
 
 ---
 
+### 平板模式
+
+在平板或折叠屏大屏设备上，Hsiaopu 自动切换为自适应双栏布局 — 侧边 NavigationRail 导航 + 内容区：
+
+| 对话页双栏 | Shell 终端 | 设置页 |
+|:----------:|:----------:|:------:|
+| <img src="Screenshot_2026-07-23-10-12-27-30_8113cc6f63e7a2559cce19c3fc1ac656.jpg" width="240" alt="平板-对话页"/> | <img src="Screenshot_2026-07-23-10-12-30-91_8113cc6f63e7a2559cce19c3fc1ac656.jpg" width="240" alt="平板-Shell终端"/> | <img src="Screenshot_2026-07-23-10-12-36-43_8113cc6f63e7a2559cce19c3fc1ac656.jpg" width="240" alt="平板-设置页"/> |
+
+---
+
 ## 功能特性
 
 | 模块 | 功能 | 技术亮点 |
