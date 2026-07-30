@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.hsiaopu"
+    namespace = "com.example.hsiaowear"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.hsiaopu"
+        applicationId = "com.example.hsiaowear"
         minSdk = 30
         targetSdk = 36
         versionCode = 1
@@ -82,18 +82,21 @@ dependencies {
     implementation(libs.retrofit2)
     implementation(libs.converter.gson)
 
-    // Shizuku
-    implementation(libs.shizuku.api)
-    implementation(libs.shizuku.provider)
+    // Coil Image Loading
+    implementation(libs.coil.compose)
 
-    // Vosk (语音识别)
+    // TFLite / ML Kit
+    implementation(libs.tensorflow.lite)
+    implementation(libs.mlkit.segmentation.selfie)
+
+    // Vosk (排除传递的 JNA 避免 class 冲突，原生 .so 通过 jniLibs 提供)
     implementation(libs.vosk.android) {
         exclude(group = "net.java.dev.jna", module = "jna")
     }
     // JNA Java 类（不含原生 .so）
     implementation("net.java.dev.jna:jna:5.14.0")
 
-    // Testing
+// Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

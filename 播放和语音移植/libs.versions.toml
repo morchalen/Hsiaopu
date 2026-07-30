@@ -28,14 +28,19 @@ datastore = "1.1.1"
 # Retrofit
 retrofit = "2.11.0"
 
+# Coil
+coil = "2.5.0"
+
 # Splash Screen
 coreSplashscreen = "1.0.1"
 
-# Shizuku
-shizuku = "13.1.5"
 animationCore = "1.11.4"
 
-# Vosk (语音识别)
+# TFLite / ML Kit
+tensorflowlite = "2.16.1"
+mlkitSegmentationSelfie = "16.0.0-beta4"
+
+# Vosk
 vosk = "0.3.38"
 
 [libraries]
@@ -80,18 +85,21 @@ datastore-preferences = { group = "androidx.datastore", name = "datastore-prefer
 retrofit2 = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
 converter-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
 
-# Shizuku
-shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }
-shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
-
-# Vosk
-vosk-android = { group = "com.alphacephei", name = "vosk-android", version.ref = "vosk" }
+# Coil
+coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 androidx-compose-animation-core = { group = "androidx.compose.animation", name = "animation-core", version.ref = "animationCore" }
+
+# TFLite / ML Kit
+tensorflow-lite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tensorflowlite" }
+mlkit-segmentation-selfie = { group = "com.google.mlkit", name = "segmentation-selfie", version.ref = "mlkitSegmentationSelfie" }
+
+# Vosk
+vosk-android = { group = "com.alphacephei", name = "vosk-android", version.ref = "vosk" }
 
 [plugins]
 

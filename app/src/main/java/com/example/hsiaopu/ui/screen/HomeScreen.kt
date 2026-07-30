@@ -1,9 +1,14 @@
 package com.example.hsiaopu.ui.screen
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -11,6 +16,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +26,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -28,9 +37,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -39,25 +50,98 @@ import com.example.hsiaopu.R
 import com.example.hsiaopu.data.ChatMessage
 import com.example.hsiaopu.data.local.ConversationEntity
 import com.example.hsiaopu.ui.theme.*
+import com.example.hsiaopu.util.VoskSpeechHelper
+import com.example.hsiaopu.util.rememberTtsManager
 import com.example.hsiaopu.viewmodel.ChatViewModel
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)// 开启实验性基础 API 和实验性 Material3 API
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
-    val uiState by viewModel.uiState.collectAsState()// 获取ViewModel 中的 UI 状态
-    var inputText by remember { mutableStateOf("") }// 输入框文本
-    // listState 是 LazyListState 的实例，用于管理消息列表的状态和行为
-    //rememberLazyListState() 就是创建 LazyListState 的一个实例对象，并且这个对象是“记忆化”的，重组时不会丢失状态。( 不用 remember：每次重组都会重新创建，滚动位置会丢失)
-    val listState = rememberLazyListState()// 消息列表状态
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)// 抽屉状态
-    // var showScrollToBottom by remember { mutableStateOf(false) }
-    var deleteConfirmId by remember { mutableStateOf<Long?>(null) }// 删除确认弹窗的对话框ID
-    val context = LocalContext.current// 获取上下文
-    val scope = rememberCoroutineScope()// 记住协程作用域
+    val TAG = "Hsiaopu-Voice"
+    val uiState by viewModel.uiState.collectAsState()
+    var inputText by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    var deleteConfirmId by remember { mutableStateOf<Long?>(null) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // TTS 自动播放
+    val ttsManager = rememberTtsManager()
+    var speakingMessageId by remember { mutableStateOf<String?>(null) }
+    var autoPlay by remember { mutableStateOf(true) }
+    val lastAutoPlayedMessageId = remember { mutableStateOf<String?>(null) }
+
+    // Vosk 语音识别
+    val voskHelper = remember { VoskSpeechHelper(context) }
+    var isVoiceRecording by remember { mutableStateOf(false) }
+    var isSlidingToCancel by remember { mutableStateOf(false) }
+    var pendingVoiceSend by remember { mutableStateOf(false) }
+
+    // 监听 TTS 朗读状态
+    DisposableEffect(Unit) {
+        ttsManager.onSpeakingStateChanged = { isSpeaking ->
+            if (!isSpeaking) {
+                speakingMessageId = null
+            }
+        }
+        onDispose {
+            ttsManager.onSpeakingStateChanged = null
+        }
+    }
+
+    // 监听 Vosk 结果和状态
+    DisposableEffect(Unit) {
+        voskHelper.onResult = { text ->
+            if (text.isNotBlank()) {
+                Log.d(TAG, "Vosk 识别结果: '$text'")
+                inputText = text
+                if (pendingVoiceSend) {
+                    pendingVoiceSend = false
+                    Log.d(TAG, "语音识别结果就绪，自动发送")
+                    viewModel.sendMessage(text)
+                    inputText = ""
+                }
+            }
+        }
+        voskHelper.onPartialResult = { text ->
+            if (text.isNotBlank()) {
+                inputText = text
+            }
+        }
+        voskHelper.onStateChanged = { state ->
+            Log.d(TAG, "Vosk 状态变化: $state")
+        }
+        onDispose {
+            voskHelper.onResult = null
+            voskHelper.onPartialResult = null
+            voskHelper.onStateChanged = null
+            voskHelper.release()
+        }
+    }
+
+    // 初始化 Vosk 模型
+    LaunchedEffect(Unit) {
+        voskHelper.initialize(scope)
+    }
+
+    // 录音权限请求
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            voskHelper.initialize(scope)
+            if (voskHelper.isModelReady) {
+                voskHelper.startRecording()
+                isVoiceRecording = true
+            }
+        }
+    }
 
     // 协程的启动方式讲解:
     // LaunchedEffect	组件进入时自动启动，离开时自动取消
@@ -79,12 +163,31 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
             //totalItemsCount - 1 = 最后一条消息的索引（下标），不是“倒数第二条”。
         }
     }
-    // 可见项索引变化时自动更新滚动到底部按钮状态
-    // val visibleItemIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index
-    // LaunchedEffect(visibleItemIndex) {
-    //     showScrollToBottom = listState.layoutInfo.totalItemsCount > 0 &&
-    //         visibleItemIndex != listState.layoutInfo.totalItemsCount - 1
-    // }
+    // 自动播放逻辑：检测新用户消息 -> 停止当前 TTS
+    LaunchedEffect(uiState.messages.lastOrNull { it.role == "user" }?.timestamp) {
+        if (autoPlay) {
+            ttsManager.stop()
+            lastAutoPlayedMessageId.value = null
+        }
+    }
+
+    // 自动播放逻辑：检测新 AI 回复 -> 加入 TTS 队列
+    LaunchedEffect(uiState.messages.size, autoPlay) {
+        if (!autoPlay || uiState.messages.isEmpty()) return@LaunchedEffect
+        val lastUserIdx = uiState.messages.indexOfLast { it.role == "user" }
+        if (lastUserIdx < 0) return@LaunchedEffect
+        val unspoken = uiState.messages.drop(lastUserIdx + 1)
+            .filter { it.role != "user" && it.timestamp != lastAutoPlayedMessageId.value?.toLongOrNull() }
+        if (unspoken.isEmpty()) return@LaunchedEffect
+        unspoken.forEachIndexed { i, msg ->
+            if (i == 0) {
+                ttsManager.speak(msg.content)
+            } else {
+                ttsManager.speakQueued(msg.content)
+            }
+            lastAutoPlayedMessageId.value = msg.timestamp.toString()
+        }
+    }
 
     // 输入框有内容时点击返回键清空输入框
     //拦截器：在返回键点击时，判断输入框是否有内容，有内容则清空输入框，否则不执行默认返回操作
@@ -160,6 +263,39 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
                     }
                 },
                 actions = {
+                    // 自动朗读按钮
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .combinedClickable(
+                                onClick = {
+                                    autoPlay = !autoPlay
+                                    if (!autoPlay) {
+                                        ttsManager.stop()
+                                        lastAutoPlayedMessageId.value = null
+                                    }
+                                },
+                                onLongClick = {
+                                    Toast.makeText(
+                                        context,
+                                        "更换语音引擎：系统设置 → 辅助功能 → 文字转语音 → 首选引擎",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                            contentDescription = if (autoPlay) "关闭自动朗读" else "开启自动朗读",
+                            tint = if (autoPlay)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
                     IconButton(
                         onClick = { viewModel.createNewConversation() },
                         enabled = uiState.messages.isNotEmpty() || uiState.streamingContent.isNotEmpty()
@@ -188,13 +324,25 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
                         verticalArrangement = Arrangement.spacedBy(8.dp)  // 每条消息间距 8dp
                     ) {
                         // 1️⃣ 渲染所有历史消息
-                        items(//遍历列表，每条数据生成一个 UI 组件
+                        items(
                             items = uiState.messages,
-                            key = { "msg_${it.timestamp}" }  // 每条消息唯一标识，优化性能
-                        ) { message ->//对每一条消息执行的逻辑
-                            MessageBubble(//把单条消息显示为气泡
+                            key = { "msg_${it.timestamp}" }
+                        ) { message ->
+                            MessageBubble(
                                 message = message,
-                                onCopy = { /* 复制消息内容👈 这是个占位/形参 */ }
+                                isSpeaking = speakingMessageId == message.timestamp.toString(),
+                                onSpeakToggle = {
+                                    val msgId = message.timestamp.toString()
+                                    if (speakingMessageId == msgId) {
+                                        ttsManager.stop()
+                                        speakingMessageId = null
+                                    } else {
+                                        ttsManager.stop()
+                                        ttsManager.speak(message.content)
+                                        speakingMessageId = msgId
+                                    }
+                                },
+                                onCopy = { }
                             )
                         }
 
@@ -245,12 +393,45 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
                 inputText = inputText,
                 onInputChange = { inputText = it },
                 isLoading = uiState.isLoading,
+                isVoiceRecording = isVoiceRecording,
+                isSlidingToCancel = isSlidingToCancel,
+                onSlidingToCancelChange = { isSlidingToCancel = it },
+                onVoiceStart = {
+                    ttsManager.stop()
+                    speakingMessageId = null
+                    if (voskHelper.isModelReady) {
+                        if (voskHelper.hasPermission()) {
+                            voskHelper.startRecording()
+                            isVoiceRecording = true
+                            isSlidingToCancel = false
+                        } else {
+                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    }
+                },
+                onVoiceEnd = { isCancel ->
+                    if (isVoiceRecording) {
+                        if (!isCancel) {
+                            pendingVoiceSend = true
+                        }
+                        voskHelper.stopRecording()
+                        isVoiceRecording = false
+                        isSlidingToCancel = false
+                    }
+                },
                 onSend = {
                     if (inputText.isNotBlank()) {
                         viewModel.sendMessage(inputText.trim())
                         inputText = ""
                     }
                 }
+            )
+        }
+
+        // 微信风格录音弹窗
+        if (isVoiceRecording) {
+            RecordingPopup(
+                isSlidingToCancel = isSlidingToCancel
             )
         }
     }
@@ -326,18 +507,18 @@ private fun EmptyChatPlaceholder(modifier: Modifier = Modifier) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubble(
-    message: ChatMessage,// 聊天消息数据（角色、内容、时间戳）
-    isStreaming: Boolean = false,// 是否为流式输出中（AI 正在回复）
-    onCopy: (() -> Unit)? = null// 复制内容到剪贴板的回调
+    message: ChatMessage,
+    isStreaming: Boolean = false,
+    isSpeaking: Boolean = false,
+    onSpeakToggle: () -> Unit = {},
+    onCopy: (() -> Unit)? = null
 ) {
-    // ========== 状态与变量 ==========
-    val isUser = message.role == "user"                              // 消息的角色。默认的哈
-    var showMenu by remember { mutableStateOf(false) }               // 复制菜单是否显示；实时重组
-    val dateFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }  // 时间格式化
-    //Locale.getDefault() = “用你手机的默认语言来显示日期和文本。” 😊
-    val isDark = isSystemInDarkTheme()                               // 是否深色模式
-    val userBubbleColor = if (isDark) UserBubbleDark else UserBubbleLight//重组的时候自动修改
-    val assistantBubbleColor = Color.Transparent                     // AI 消息背景透明
+    val isUser = message.role == "user"
+    var showMenu by remember { mutableStateOf(false) }
+    val dateFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val isDark = isSystemInDarkTheme()
+    val userBubbleColor = if (isDark) UserBubbleDark else UserBubbleLight
+    val assistantBubbleColor = Color.Transparent
 
     // ========== 外层容器：控制整条消息的左右对齐 ==========
     Column(
@@ -405,11 +586,46 @@ fun MessageBubble(
                         onLongClick = { showMenu = true; onCopy?.invoke() }  // 长按触发复制
                     )
             ) {
-                // 气泡内容：Markdown 渲染
-                MarkdownText(
-                    content = message.content,
-                    modifier = Modifier.padding(12.dp)
-                )
+                if (isUser) {
+                    MarkdownText(
+                        content = message.content,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                } else {
+                    Column {
+                        MarkdownText(
+                            content = message.content,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                        // AI 消息朗读按钮
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = onSpeakToggle,
+                                modifier = Modifier.size(28.dp),
+                                colors = IconButtonDefaults.iconButtonColors(
+                                    containerColor = if (isSpeaking)
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                    else
+                                        Color.Transparent,
+                                    contentColor = if (isSpeaking)
+                                        MaterialTheme.colorScheme.primary
+                                    else
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                                    contentDescription = if (isSpeaking) "停止朗读" else "朗读",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             // 长按弹出的复制菜单
@@ -475,134 +691,265 @@ fun LoadingDots() {
 
 // ==================== 输入框 ====================
 
-/**
- * 聊天输入栏组件
- * 
- * 这是聊天界面底部的输入区域，包含：
- * 1. 输入框（OutlinedTextField）—— 用户打字的地方
- * 2. 发送按钮（FilledIconButton）—— 点击发送消息
- * 
- * @param inputText 当前输入框中的文字（由父组件管理）
- * @param onInputChange 文字变化时的回调（通知父组件更新文字）
- * @param isLoading 是否正在加载（AI 回复中），加载时禁用发送按钮
- * @param onSend 点击发送按钮时的回调
- */
 @Composable
 fun ChatInputBar(
-    inputText: String,                    // 当前输入的文字
-    onInputChange: (String) -> Unit,      // 文字变化时通知父组件
-    isLoading: Boolean,                   // 是否正在加载（AI 思考中）
-    onSend: () -> Unit                    // 点击发送按钮时执行
+    inputText: String,
+    onInputChange: (String) -> Unit,
+    isLoading: Boolean,
+    isVoiceRecording: Boolean = false,
+    isSlidingToCancel: Boolean = false,
+    onSlidingToCancelChange: (Boolean) -> Unit = {},
+    onVoiceStart: () -> Unit = {},
+    onVoiceEnd: (isCancel: Boolean) -> Unit = {},
+    onSend: () -> Unit
 ) {
-    // ========== 按钮按压状态 ==========
-    // pressed = true 时按钮缩小，模拟物理按压效果
     var pressed by remember { mutableStateOf(false) }
+    var isVoicePressed by remember { mutableStateOf(false) }
 
-    // ========== 发送按钮缩放动画 ==========
-    // 当 pressed = true 时，按钮缩放到 0.85 倍（看起来被按下去）
-    // 当 pressed = false 时，按钮恢复 1 倍（弹起来）
-    //by = 自动拆包，让你直接拿到 值，不用每次都写 .value ；；；这里的sendScale被自动推导为Float 类型，因为是Modifier.scale来使用的，这个里面本来是应该放置一个浮点数的
-    val sendScale by animateFloatAsState(//animateFloatAsState让 Float 值变化时播放平滑动画
-        targetValue = if (pressed) 0.85f else 1f,  // 目标缩放值
-        animationSpec = tween(200),               // 200ms 动画时长
-        label = "send_scale"                      // 调试标签
+    val sendScale by animateFloatAsState(
+        targetValue = if (pressed) 0.85f else 1f,
+        animationSpec = tween(200),
+        label = "send_scale"
     )
 
-    // ========== 输入框 ==========
+    val micTint by animateColorAsState(
+        targetValue = when {
+            isVoiceRecording -> MaterialTheme.colorScheme.error
+            isVoicePressed -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        label = "micTint"
+    )
+
+    val micBg by animateColorAsState(
+        targetValue = when {
+            isVoicePressed -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+            else -> Color.Transparent
+        },
+        label = "micBg"
+    )
+
     Box(
-    modifier = Modifier
-        .fillMaxWidth()
-        ){
-        // ========== 水平布局：输入框 + 发送按钮 ==========
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+    ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()                   // 占满屏幕宽度
-                .padding(horizontal = 12.dp, vertical = 8.dp), // 左右12dp，上下8dp
-            verticalAlignment = Alignment.Bottom   // 子元素底部对齐
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.Bottom
         ) {
-            // ========== 输入框 ==========
+            // 输入框
             OutlinedTextField(
-                // ----- 数据和事件 -----
-                value = inputText,                 // 当前显示的文字
-                onValueChange = onInputChange,     // 用户打字时通知父组件
-                
-                // ----- 布局 -----
-                modifier = Modifier.weight(1f),    // 占满剩余宽度（让按钮固定大小）
-                
-                // ----- 提示文字 -----
+                value = inputText,
+                onValueChange = onInputChange,
+                modifier = Modifier.weight(1f),
                 placeholder = {
                     Text(
-                        "发送指令",        // 输入框为空时显示的灰色文字
+                        "发送指令",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                     )
                 },
-                
-                // ----- 行数限制 -----
-                maxLines = 5,                      // 最多5行，超过滚动
-                
-                // ----- 文字样式 -----
+                maxLines = 5,
                 textStyle = MaterialTheme.typography.bodyLarge,
-                
-                // ----- 颜色配置 -----
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),  // 聚焦时边框颜色（主色半透明）
-                    unfocusedBorderColor = MaterialTheme.colorScheme.surfaceVariant,            // 失焦时边框颜色
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,           // 聚焦时背景色
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant          // 失焦时背景色
+                    focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                    unfocusedBorderColor = MaterialTheme.colorScheme.surfaceVariant,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant
                 ),
-                
-                // ----- 形状 -----
-                shape = RoundedCornerShape(20.dp)  // 圆角 20dp（胶囊形状）
+                shape = RoundedCornerShape(20.dp)
             )
 
-            // ========== 输入框和按钮之间的间距 ==========
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(4.dp))
 
-            // ========== 发送按钮 ==========
-            FilledIconButton(
-                // ----- 点击事件 -----
-                onClick = {
-                    pressed = true                 // 触发按压动画
-                    onSend()                       // 执行发送逻辑
-                },
-                
-                // ----- 启用/禁用 -----
-                // 只有输入框有文字 && 不在加载状态时，按钮才可点击
-                enabled = inputText.isNotBlank() && !isLoading,
-                
-                // ----- 样式 -----
+            // 语音按钮
+            Box(
                 modifier = Modifier
-                    .size(48.dp)                   // 按钮大小 48x48
-                    .scale(sendScale),             // 跟随缩放动画（按压效果）,提前定义好的哈
-                
-                // ----- 颜色 -----
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,  // 启用时背景色（主色）
-                    disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) // 禁用时背景色（半透明）
-                ),
-                
-                // ----- 形状 -----
-                shape = CircleShape                // 圆形
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(micBg)
+                    .pointerInput(Unit) {
+                        val density = this.density
+                        val cancelThresholdPx = with(density) { 80.dp.toPx() }
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                isVoicePressed = true
+                                onVoiceStart()
+                            },
+                            onDrag = { change, _ ->
+                                change.consume()
+                                val slideUpPx = -change.position.y
+                                if (slideUpPx > cancelThresholdPx) {
+                                    onSlidingToCancelChange(true)
+                                } else {
+                                    onSlidingToCancelChange(false)
+                                }
+                            },
+                            onDragEnd = {
+                                isVoicePressed = false
+                                onVoiceEnd(false)
+                            },
+                            onDragCancel = {
+                                isVoicePressed = false
+                                onVoiceEnd(true)
+                            }
+                        )
+                    },
+                contentAlignment = Alignment.Center
             ) {
-                // ----- 按钮图标（纸飞机/发送） -----
-                @Suppress("DEPRECATION")
                 Icon(
-                    Icons.Default.Send,            // 发送图标
-                    contentDescription = "发送",   // 无障碍描述
-                    tint = MaterialTheme.colorScheme.onPrimary,  // 图标颜色（主色上的文字颜色）
-                    modifier = Modifier.size(20.dp) // 图标大小 20dp
+                    Icons.Default.Mic,
+                    contentDescription = "语音输入",
+                    tint = micTint,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(4.dp))
+
+            // 发送按钮
+            val sendEnabled = inputText.isNotBlank() && !isLoading
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(
+                        color = if (sendEnabled)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        enabled = sendEnabled,
+                        onClick = onSend
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "发送",
+                    tint = if (sendEnabled)
+                        MaterialTheme.colorScheme.onPrimary
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
     }
 
-    // ========== 重置按压状态 ==========
-    // 点击按钮后，100ms 后自动将 pressed 重置为 false，让按钮弹起来
     LaunchedEffect(pressed) {
         if (pressed) {
-            delay(100)                           // 等待 100ms
-            pressed = false                      // 重置状态
+            delay(100)
+            pressed = false
+        }
+    }
+}
+
+// ==================== 录音弹窗 ====================
+
+@Composable
+private fun RecordingPopup(
+    isSlidingToCancel: Boolean
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "recording_anim")
+    val waveAnim by infiniteTransition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1200), RepeatMode.Reverse),
+        label = "wave"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.3f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {}
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(if (isSlidingToCancel) 120.dp else 128.dp)
+                    .background(
+                        color = if (isSlidingToCancel)
+                            Color(0xFFFF4444)
+                        else
+                            Color(0xFF3A3A3A),
+                        shape = RoundedCornerShape(20.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isSlidingToCancel) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "↑",
+                            fontSize = 28.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "取消发送",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White
+                        )
+                    }
+                } else {
+                    Box(contentAlignment = Alignment.Center) {
+                        for (i in 0..3) {
+                            val alpha = ((waveAnim * 4 - i.toFloat()).coerceIn(0f, 1f)) * 0.5f
+                            if (alpha > 0f) {
+                                Box(
+                                    modifier = Modifier
+                                        .size((48 + i * 20).dp)
+                                        .scale(1f + waveAnim * 0.15f)
+                                        .background(
+                                            color = Color.White.copy(alpha = alpha * 0.3f),
+                                            shape = RoundedCornerShape(50)
+                                        )
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = if (isSlidingToCancel) "松开手指，取消发送" else "手指上滑，取消发送",
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .background(
+                        color = if (isSlidingToCancel) Color(0xFFFF4444) else Color(0xFF3A3A3A),
+                        shape = RoundedCornerShape(6.dp)
+                    )
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            )
         }
     }
 }
