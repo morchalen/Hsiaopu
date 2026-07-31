@@ -450,7 +450,13 @@ class ChatViewModel @Inject constructor(
                 text = text.substring(end + FLOW_END.length)
             }
             // 清理残留的 [SHELL:xxx] 命令标记，避免 TTS 朗读命令文本
-            return text.replace(Regex("""\[SHELL:[^\]]+\]"""), "").trim()
+            text = text.replace(Regex("""\[SHELL:[^\]]+\]"""), "")
+            // 清理单独成行的分隔线，避免 TTS 朗读特殊字符
+            return text
+                .lines()
+                .filter { it.trim() != "---" }
+                .joinToString("\n")
+                .trim()
         }
 
         /** 二次总结请求的固定指令：要求 AI 简洁实用地如实汇报真实执行结果 */
@@ -459,27 +465,24 @@ class ChatViewModel @Inject constructor(
 
     /**
      * 构建"已核实"的真实执行结果文本（区分 成功有输出 / 失败 / 无输出无法核实）。
-     * 供二次总结请求和调试流程块使用。
+     * 干净可读的格式：既用于调试流程块，也用于二次总结失败时作为正式回复（可被朗读）。
      */
     private fun buildToolResultText(toolResults: List<SysResult>): String = buildString {
-        appendLine()
-        appendLine("---")
-        appendLine("系统真实执行结果（严禁编造，必须如实汇报）：")
-        toolResults.forEach { r ->
+        toolResults.forEachIndexed { i, r ->
+            if (i > 0) appendLine()
             when {
                 r.success && r.output.isNotBlank() -> {
-                    appendLine("✓ 命令[${r.action}] 执行成功，返回：")
+                    appendLine("✓ ${r.action}：执行成功，返回：")
                     appendLine(r.output.take(800))
                 }
                 !r.success -> {
-                    appendLine("✗ 命令[${r.action}] 执行失败：${r.message}")
+                    appendLine("✗ ${r.action}：执行失败，${r.message}")
                 }
                 else -> {
-                    appendLine("⚠️ 命令[${r.action}] 已执行但无任何返回输出，无法核实，需视为异常并如实告知用户。")
+                    appendLine("⚠️ ${r.action}：已执行但无任何返回输出，无法核实")
                 }
             }
         }
-        appendLine("---")
     }
 
     /**
