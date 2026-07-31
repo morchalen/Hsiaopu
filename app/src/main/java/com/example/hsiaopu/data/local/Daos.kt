@@ -79,11 +79,12 @@ interface ShellHistoryDao {
     // @Delete	❌ 不写	    按主键删除，也是固定的
     // @Update	❌ 不写	    按主键更新，也是固定的
     // @Query	✅ 必须写	    查询千变万化（条件、排序、联表），Room 猜不到
-    @Query("SELECT * FROM shell_history ORDER BY timestamp ASC")
+    // 只取最新 500 条，避免一次加载过多导致 CursorWindow 溢出
+    @Query("SELECT * FROM shell_history ORDER BY timestamp ASC LIMIT 500")
     fun getAllHistory(): Flow<List<ShellHistoryEntity>>
 
     // 同上，但是一次性获取（不自动更新）
-    @Query("SELECT * FROM shell_history ORDER BY timestamp ASC")
+    @Query("SELECT * FROM shell_history ORDER BY timestamp ASC LIMIT 500")
     suspend fun getAllHistorySync(): List<ShellHistoryEntity>
 
     // "存一条命令历史"

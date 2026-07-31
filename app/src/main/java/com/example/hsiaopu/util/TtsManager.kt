@@ -34,6 +34,12 @@ class TtsManager(context: Context) {
     var isSpeaking: Boolean = false
         private set
 
+    /** TTS 未就绪时的 speak() 待处理列表（第一条直接朗读） */
+    private val pendingSpeakTexts = mutableListOf<String>()
+
+    /** TTS 未就绪时的 speakQueued() 待处理列表（追加到队列） */
+    private val pendingQueueItems = mutableListOf<Pair<String, String>>()
+
     /**
      * 已知的 OEM TTS 引擎包名列表，用于默认引擎初始化失败时逐个尝试。
      */
@@ -161,18 +167,22 @@ class TtsManager(context: Context) {
         tts?.setPitch(1.0f)
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
+                // 预热朗读不改变播放状态，避免 UI 误显示"正在播放"却无声
+                if (utteranceId == "tts_warmup") return
                 Log.d(TAG, "TTS 开始朗读: $utteranceId")
                 isSpeaking = true
                 onSpeakingStateChanged?.invoke(true)
             }
 
             override fun onDone(utteranceId: String?) {
+                if (utteranceId == "tts_warmup") return
                 Log.d(TAG, "TTS 朗读结束: $utteranceId")
                 isSpeaking = false
                 onSpeakingStateChanged?.invoke(false)
             }
 
             override fun onError(utteranceId: String?) {
+                if (utteranceId == "tts_warmup") return
                 Log.e(TAG, "TTS 朗读出错: $utteranceId")
                 isSpeaking = false
                 onSpeakingStateChanged?.invoke(false)
@@ -181,6 +191,36 @@ class TtsManager(context: Context) {
 
         warmupTts()
 
+        // 处理所有待处理的播放请求
+        flushPendingRequests()
+    }
+
+    /** TTS 就绪后，统一处理所有待处理的 speak 和 speakQueued 请求 */
+    private fun flushPendingRequests() {
+        // 先处理 speak() 的待处理文本（最后一个 speak 会 flush 前面的 speak）
+        val speakTexts = pendingSpeakTexts.toList()
+        pendingSpeakTexts.clear()
+
+        // 再处理 speakQueued() 的待处理队列
+        val queueItems = pendingQueueItems.toList()
+        pendingQueueItems.clear()
+
+        // 先朗读最后一个 speak（因为 speak 使用 QUEUE_FLUSH，只保留最后一条）
+        if (speakTexts.isNotEmpty()) {
+            val lastSpeak = speakTexts.last()
+            Log.d(TAG, "flushPendingRequests: 播放最后一个 speak 请求")
+            speakInternal(lastSpeak)
+        }
+
+        // 追加所有 speakQueued 请求
+        if (queueItems.isNotEmpty()) {
+            Log.d(TAG, "flushPendingRequests: 追加 ${queueItems.size} 个排队播放请求")
+            queueItems.forEach { (text, id) ->
+                speakQueuedInternal(text, id)
+            }
+        }
+
+        // 调用外部设置的初始化回调
         val pendingCallback = onInitCallback
         onInitCallback = null
         pendingCallback?.invoke()
@@ -201,14 +241,17 @@ class TtsManager(context: Context) {
 
     /**
      * 朗读指定的文本。
-     * 如果 TTS 未初始化完成，会等待初始化后再朗读。
+     * 如果 TTS 未初始化完成，会将请求加入待处理队列，等待初始化后再朗读。
      */
     fun speak(text: String) {
         if (!isInitialized) {
-            Log.d(TAG, "TTS 未就绪，排队等待初始化后朗读")
-            onInitCallback = {
-                speakInternal(text)
-                onInitCallback = null
+            Log.d(TAG, "TTS 未就绪，speak() 加入待处理队列")
+            pendingSpeakTexts.add(text)
+            // 设置回调（如果还没设置），确保初始化后能处理所有待处理请求
+            if (onInitCallback == null) {
+                onInitCallback = {
+                    flushPendingRequests()
+                }
             }
             return
         }
@@ -233,12 +276,25 @@ class TtsManager(context: Context) {
     /**
      * 排队朗读文本，追加到当前 TTS 队列末尾。
      * 用于自动播放多个 AI 回复。
+     * 如果 TTS 未就绪，会将请求加入待处理队列。
      */
     fun speakQueued(text: String, utteranceId: String = "auto_play_${System.currentTimeMillis()}") {
         if (!isInitialized) {
-            Log.d(TAG, "TTS 未就绪，无法加入自动播放队列")
+            Log.d(TAG, "TTS 未就绪，speakQueued() 加入待处理队列")
+            pendingQueueItems.add(text to utteranceId)
+            // 设置回调（如果还没设置），确保初始化后能处理所有待处理请求
+            if (onInitCallback == null) {
+                onInitCallback = {
+                    flushPendingRequests()
+                }
+            }
             return
         }
+        speakQueuedInternal(text, utteranceId)
+    }
+
+    /** 实际执行排队朗读（内部方法） */
+    private fun speakQueuedInternal(text: String, utteranceId: String) {
         if (tts == null) {
             Log.e(TAG, "TTS 引擎为空，无法朗读")
             return
@@ -250,8 +306,12 @@ class TtsManager(context: Context) {
 
     /** 停止当前朗读 */
     fun stop() {
+        // 清理所有待处理的播放请求
+        pendingSpeakTexts.clear()
+        pendingQueueItems.clear()
+        onInitCallback = null
+
         if (!isInitialized) {
-            onInitCallback = null
             return
         }
         Log.d(TAG, "停止 TTS 朗读")
@@ -263,6 +323,11 @@ class TtsManager(context: Context) {
     /** 释放 TTS 资源 */
     fun shutdown() {
         try {
+            // 清理所有待处理的播放请求
+            pendingSpeakTexts.clear()
+            pendingQueueItems.clear()
+            onInitCallback = null
+
             if (isInitialized) {
                 tts?.stop()
                 tts?.shutdown()

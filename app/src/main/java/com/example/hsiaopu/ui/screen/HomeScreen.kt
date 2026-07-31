@@ -14,9 +14,11 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -75,19 +77,50 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
     val ttsManager = rememberTtsManager()
     var speakingMessageId by remember { mutableStateOf<String?>(null) }
     var autoPlay by remember { mutableStateOf(true) }
-    val lastAutoPlayedMessageId = remember { mutableStateOf<String?>(null) }
+    // 已自动播放过的消息 timestamp 集合，用于排除重复播放
+    val playedMessageIds = remember { mutableStateOf<Set<Long>>(emptySet()) }
 
     // Vosk 语音识别
     val voskHelper = remember { VoskSpeechHelper(context) }
-    var isVoiceRecording by remember { mutableStateOf(false) }
+    var isVoiceRecording by remember { mutableStateOf(false) }   // 真正在录音
+    var isVoiceOverlayVisible by remember { mutableStateOf(false) } // 弹窗可见（可能在准备中）
     var isSlidingToCancel by remember { mutableStateOf(false) }
     var pendingVoiceSend by remember { mutableStateOf(false) }
+    var voskModelState by remember { mutableStateOf<VoskSpeechHelper.State?>(null) }
+    var voiceRequestPending by remember { mutableStateOf(false) } // 用户按了录音键但模型未就绪
+
+    // 录音权限请求（必须放在 DisposableEffect 之前，因为 onStateChanged 回调中引用它）
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            if (voiceRequestPending) {
+                voiceRequestPending = false
+                if (voskHelper.isModelReady || voskModelState == null) {
+                    voskHelper.initialize(scope)
+                }
+                if (voskHelper.isModelReady) {
+                    voskHelper.startRecording()
+                    isVoiceRecording = true
+                }
+                isVoiceOverlayVisible = true
+                isSlidingToCancel = false
+            } else {
+                voiceRequestPending = false
+                isVoiceOverlayVisible = false
+                isVoiceRecording = false
+                Toast.makeText(context, "需要录音权限才能使用语音输入", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     // 监听 TTS 朗读状态
     DisposableEffect(Unit) {
         ttsManager.onSpeakingStateChanged = { isSpeaking ->
+            Log.d("Hsiaopu-TTS", "朗读状态变化: isSpeaking=$isSpeaking, 当前speakingMessageId=$speakingMessageId")
             if (!isSpeaking) {
                 speakingMessageId = null
+                Log.d("Hsiaopu-TTS", "已清除 speakingMessageId")
             }
         }
         onDispose {
@@ -115,7 +148,28 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
             }
         }
         voskHelper.onStateChanged = { state ->
+            voskModelState = state
             Log.d(TAG, "Vosk 状态变化: $state")
+            // 模型就绪后，如果用户之前按过录音键，自动开始录音
+            if (state == VoskSpeechHelper.State.MODEL_READY && voiceRequestPending) {
+                voiceRequestPending = false
+                isVoiceOverlayVisible = true
+                if (voskHelper.hasPermission()) {
+                    voskHelper.startRecording()
+                    isVoiceRecording = true
+                    isSlidingToCancel = false
+                } else {
+                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            }
+            // 错误状态：清理所有录音相关状态
+            if (state == VoskSpeechHelper.State.ERROR) {
+                voiceRequestPending = false
+                isVoiceRecording = false
+                isVoiceOverlayVisible = false
+                isSlidingToCancel = false
+                Toast.makeText(context, "语音识别出错，请重试", Toast.LENGTH_SHORT).show()
+            }
         }
         onDispose {
             voskHelper.onResult = null
@@ -128,19 +182,6 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
     // 初始化 Vosk 模型
     LaunchedEffect(Unit) {
         voskHelper.initialize(scope)
-    }
-
-    // 录音权限请求
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            voskHelper.initialize(scope)
-            if (voskHelper.isModelReady) {
-                voskHelper.startRecording()
-                isVoiceRecording = true
-            }
-        }
     }
 
     // 协程的启动方式讲解:
@@ -163,29 +204,87 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
             //totalItemsCount - 1 = 最后一条消息的索引（下标），不是“倒数第二条”。
         }
     }
-    // 自动播放逻辑：检测新用户消息 -> 停止当前 TTS
-    LaunchedEffect(uiState.messages.lastOrNull { it.role == "user" }?.timestamp) {
-        if (autoPlay) {
-            ttsManager.stop()
-            lastAutoPlayedMessageId.value = null
-        }
-    }
+    // 自动播放状态
+    var lastConversationId by remember { mutableStateOf<Long?>(uiState.currentConversationId) }
+    var allowAutoPlay by remember { mutableStateOf(false) }
+    var wasLoading by remember { mutableStateOf(false) }
 
-    // 自动播放逻辑：检测新 AI 回复 -> 加入 TTS 队列
-    LaunchedEffect(uiState.messages.size, autoPlay) {
-        if (!autoPlay || uiState.messages.isEmpty()) return@LaunchedEffect
+    // 统一的自动播放调度器：合并对话切换、发送消息、AI回复完成三种场景
+    LaunchedEffect(
+        uiState.currentConversationId,
+        uiState.isLoading,
+        uiState.messages.size,
+        autoPlay
+    ) {
+        val curConvId = uiState.currentConversationId
+        val isLoadingNow = uiState.isLoading
+        val msgCount = uiState.messages.size
+
+        // 场景1：对话切换 → 重置所有状态，禁止自动播放
+        if (curConvId != lastConversationId) {
+            Log.d("Hsiaopu-AutoPlay", "[对话切换] ${lastConversationId} → $curConvId, 禁用自动播放")
+            lastConversationId = curConvId
+            allowAutoPlay = false
+            wasLoading = false
+            ttsManager.stop()
+            playedMessageIds.value = emptySet()
+            return@LaunchedEffect
+        }
+
+        // 场景2：用户发送了消息（isLoading false→true）→ 允许自动播放
+        if (isLoadingNow && !wasLoading) {
+            Log.d("Hsiaopu-AutoPlay", "[发送消息] 允许自动播放")
+            allowAutoPlay = true
+            ttsManager.stop()
+            playedMessageIds.value = emptySet()
+        }
+        wasLoading = isLoadingNow
+
+        // 场景3：AI 回复完成 + 允许自动播放 → 执行自动播放
+        if (!autoPlay) {
+            Log.d("Hsiaopu-AutoPlay", "[跳过] autoPlay=false")
+            return@LaunchedEffect
+        }
+        if (!allowAutoPlay) {
+            Log.d("Hsiaopu-AutoPlay", "[跳过] allowAutoPlay=false（尚未发送消息）")
+            return@LaunchedEffect
+        }
+        if (isLoadingNow) {
+            Log.d("Hsiaopu-AutoPlay", "[等待] AI 正在回复中")
+            return@LaunchedEffect
+        }
+        if (msgCount == 0) {
+            Log.d("Hsiaopu-AutoPlay", "[跳过] 消息为空")
+            return@LaunchedEffect
+        }
+
+        // 找到最后一条用户消息之后的 AI 回复
         val lastUserIdx = uiState.messages.indexOfLast { it.role == "user" }
-        if (lastUserIdx < 0) return@LaunchedEffect
-        val unspoken = uiState.messages.drop(lastUserIdx + 1)
-            .filter { it.role != "user" && it.timestamp != lastAutoPlayedMessageId.value?.toLongOrNull() }
-        if (unspoken.isEmpty()) return@LaunchedEffect
+        if (lastUserIdx < 0) {
+            Log.d("Hsiaopu-AutoPlay", "[跳过] 没有用户消息")
+            return@LaunchedEffect
+        }
+        val aiReplies = uiState.messages
+            .drop(lastUserIdx + 1)
+            .filter { it.role != "user" }
+
+        // 排除所有已播放过的
+        val unspoken = aiReplies.filter { it.timestamp !in playedMessageIds.value }
+        Log.d("Hsiaopu-AutoPlay", "[播放] AI回复数=${aiReplies.size}, 未播放=${unspoken.size}, 已播放数=${playedMessageIds.value.size}")
+        if (unspoken.isEmpty()) {
+            return@LaunchedEffect
+        }
         unspoken.forEachIndexed { i, msg ->
+            Log.d("Hsiaopu-AutoPlay", "  [${i}] timestamp=${msg.timestamp}, content=${msg.content.take(30)}")
+            // 剥离调试流程块，只朗读正常回复内容
+            val speakText = ChatViewModel.stripDebugFlow(msg.content)
             if (i == 0) {
-                ttsManager.speak(msg.content)
+                ttsManager.speak(speakText)
+                speakingMessageId = msg.timestamp.toString()  // 同步UI状态
             } else {
-                ttsManager.speakQueued(msg.content)
+                ttsManager.speakQueued(speakText)
             }
-            lastAutoPlayedMessageId.value = msg.timestamp.toString()
+            playedMessageIds.value = playedMessageIds.value + msg.timestamp
         }
     }
 
@@ -266,13 +365,13 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
                     // 自动朗读按钮
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(48.dp)
                             .combinedClickable(
                                 onClick = {
                                     autoPlay = !autoPlay
                                     if (!autoPlay) {
                                         ttsManager.stop()
-                                        lastAutoPlayedMessageId.value = null
+                                        playedMessageIds.value = emptySet()
                                     }
                                 },
                                 onLongClick = {
@@ -292,7 +391,7 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
                                 MaterialTheme.colorScheme.primary
                             else
                                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(28.dp)
                         )
                     }
 
@@ -330,15 +429,22 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
                         ) { message ->
                             MessageBubble(
                                 message = message,
-                                isSpeaking = speakingMessageId == message.timestamp.toString(),
+                                isSpeaking = speakingMessageId == message.timestamp.toString() && ttsManager.isSpeaking,
                                 onSpeakToggle = {
                                     val msgId = message.timestamp.toString()
-                                    if (speakingMessageId == msgId) {
+                                    val isTtsActuallySpeaking = ttsManager.isSpeaking
+                                    Log.d("Hsiaopu-Voice", "[播放按钮] 点击，msgId=$msgId, playingId=$speakingMessageId, TTS正在播放=$isTtsActuallySpeaking")
+                                    
+                                    // 判断逻辑：只有当 msgId 匹配且 TTS 确实在播放时才停止
+                                    if (speakingMessageId == msgId && isTtsActuallySpeaking) {
+                                        Log.d("Hsiaopu-Voice", "[播放按钮] 停止播放")
                                         ttsManager.stop()
                                         speakingMessageId = null
                                     } else {
+                                        Log.d("Hsiaopu-Voice", "[播放按钮] 开始/重新播放, 内容=${message.content.take(30)}")
                                         ttsManager.stop()
-                                        ttsManager.speak(message.content)
+                                        // 剥离调试流程块，只朗读正常回复内容
+                                        ttsManager.speak(ChatViewModel.stripDebugFlow(message.content))
                                         speakingMessageId = msgId
                                     }
                                 },
@@ -394,29 +500,55 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
                 onInputChange = { inputText = it },
                 isLoading = uiState.isLoading,
                 isVoiceRecording = isVoiceRecording,
+                isVoiceOverlayVisible = isVoiceOverlayVisible,
                 isSlidingToCancel = isSlidingToCancel,
                 onSlidingToCancelChange = { isSlidingToCancel = it },
                 onVoiceStart = {
                     ttsManager.stop()
                     speakingMessageId = null
-                    if (voskHelper.isModelReady) {
-                        if (voskHelper.hasPermission()) {
-                            voskHelper.startRecording()
-                            isVoiceRecording = true
-                            isSlidingToCancel = false
-                        } else {
-                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    // 显示弹窗（准备中或录音中）
+                    isVoiceOverlayVisible = true
+                    isSlidingToCancel = false
+                    when {
+                        voskHelper.isModelReady -> {
+                            // 模型已就绪，直接开始录音
+                            if (voskHelper.hasPermission()) {
+                                voskHelper.startRecording()
+                                isVoiceRecording = true
+                            } else {
+                                voiceRequestPending = true
+                                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        }
+                        voskModelState == VoskSpeechHelper.State.MODEL_EXTRACTING -> {
+                            // 模型正在从 assets 解压
+                            voiceRequestPending = true
+                        }
+                        voskModelState == VoskSpeechHelper.State.ERROR -> {
+                            // 之前解压/加载失败
+                            Toast.makeText(context, "语音模型加载失败，请重新安装 App", Toast.LENGTH_SHORT).show()
+                            isVoiceOverlayVisible = false
+                        }
+                        else -> {
+                            // 模型尚未初始化，触发初始化
+                            voiceRequestPending = true
+                            voskHelper.initialize(scope)
                         }
                     }
                 },
                 onVoiceEnd = { isCancel ->
+                    // 关闭弹窗
+                    isVoiceOverlayVisible = false
+                    isSlidingToCancel = false
                     if (isVoiceRecording) {
                         if (!isCancel) {
                             pendingVoiceSend = true
                         }
                         voskHelper.stopRecording()
                         isVoiceRecording = false
-                        isSlidingToCancel = false
+                    } else {
+                        // 录音未真正开始（如模型还在加载中或权限未获取），清理等待状态
+                        voiceRequestPending = false
                     }
                 },
                 onSend = {
@@ -427,39 +559,42 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
                 }
             )
         }
-
-        // 微信风格录音弹窗
-        if (isVoiceRecording) {
-            RecordingPopup(
-                isSlidingToCancel = isSlidingToCancel
-            )
-        }
     }
 
     // ========== 平板模式：Row 布局，左侧抽屉固定显示 ==========
-    if (isTablet) {
-        Row(modifier = Modifier.fillMaxSize()) {
-            //第一列：抽屉
-            Surface(
-                modifier = Modifier.fillMaxHeight().width(300.dp),
-                color = MaterialTheme.colorScheme.surface
-            ) {
-                drawerContent()
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (isTablet) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                //第一列：抽屉
+                Surface(
+                    modifier = Modifier.fillMaxHeight().width(300.dp),
+                    color = MaterialTheme.colorScheme.surface
+                ) {
+                    drawerContent()
+                }
+                //第二列：聊天内容
+                VerticalDivider(modifier = Modifier.fillMaxHeight())
+                //第三列：聊天区域
+                chatContent()
             }
-            //第二列：聊天内容
-            VerticalDivider(modifier = Modifier.fillMaxHeight())
-            //第三列：聊天区域
-            chatContent()
+        } else {
+            // ========== 手机模式：ModalNavigationDrawer 覆盖式抽屉 ==========
+            ModalNavigationDrawer(
+                drawerState = drawerState,
+                drawerContent = drawerContent,
+                gesturesEnabled = true,
+                scrimColor = Black.copy(alpha = 0.5f)
+            ) {
+                chatContent()
+            }
         }
-    } else {
-        // ========== 手机模式：ModalNavigationDrawer 覆盖式抽屉 ==========
-        ModalNavigationDrawer(
-            drawerState = drawerState,
-            drawerContent = drawerContent,
-            gesturesEnabled = true,
-            scrimColor = Black.copy(alpha = 0.5f)
-        ) {
-            chatContent()
+
+        // 录音弹窗覆盖层（放在最上层，确保显示）
+        if (isVoiceOverlayVisible) {
+            RecordingPopup(
+                isSlidingToCancel = isSlidingToCancel,
+                isModelReady = isVoiceRecording || voskHelper.isModelReady
+            )
         }
     }
 }
@@ -593,10 +728,18 @@ fun MessageBubble(
                     )
                 } else {
                     Column {
-                        MarkdownText(
-                            content = message.content,
-                            modifier = Modifier.padding(12.dp)
-                        )
+                        // 解析调试流程块：正常回复用 Markdown 渲染，流程块用灰色小字
+                        val contentParts = remember(message.content) { parseFlowBlocks(message.content) }
+                        contentParts.forEach { part ->
+                            if (part.isFlow) {
+                                FlowDebugText(part.text)
+                            } else {
+                                MarkdownText(
+                                    content = part.text,
+                                    modifier = Modifier.padding(12.dp)
+                                )
+                            }
+                        }
                         // AI 消息朗读按钮
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -605,7 +748,7 @@ fun MessageBubble(
                         ) {
                             IconButton(
                                 onClick = onSpeakToggle,
-                                modifier = Modifier.size(28.dp),
+                                modifier = Modifier.size(44.dp),
                                 colors = IconButtonDefaults.iconButtonColors(
                                     containerColor = if (isSpeaking)
                                         MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
@@ -620,7 +763,7 @@ fun MessageBubble(
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.VolumeUp,
                                     contentDescription = if (isSpeaking) "停止朗读" else "朗读",
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
                         }
@@ -697,6 +840,7 @@ fun ChatInputBar(
     onInputChange: (String) -> Unit,
     isLoading: Boolean,
     isVoiceRecording: Boolean = false,
+    isVoiceOverlayVisible: Boolean = false,
     isSlidingToCancel: Boolean = false,
     onSlidingToCancelChange: (Boolean) -> Unit = {},
     onVoiceStart: () -> Unit = {},
@@ -714,7 +858,8 @@ fun ChatInputBar(
 
     val micTint by animateColorAsState(
         targetValue = when {
-            isVoiceRecording -> MaterialTheme.colorScheme.error
+            isSlidingToCancel -> MaterialTheme.colorScheme.error
+            isVoiceOverlayVisible -> MaterialTheme.colorScheme.primary
             isVoicePressed -> MaterialTheme.colorScheme.primary
             else -> MaterialTheme.colorScheme.onSurfaceVariant
         },
@@ -765,38 +910,44 @@ fun ChatInputBar(
 
             Spacer(modifier = Modifier.width(4.dp))
 
-            // 语音按钮
+            // 语音按钮（参考项目方案：触摸即开始录音，上滑取消）
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(56.dp)
                     .clip(RoundedCornerShape(50))
                     .background(micBg)
                     .pointerInput(Unit) {
                         val density = this.density
                         val cancelThresholdPx = with(density) { 80.dp.toPx() }
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = {
-                                isVoicePressed = true
-                                onVoiceStart()
-                            },
-                            onDrag = { change, _ ->
-                                change.consume()
-                                val slideUpPx = -change.position.y
-                                if (slideUpPx > cancelThresholdPx) {
-                                    onSlidingToCancelChange(true)
-                                } else {
-                                    onSlidingToCancelChange(false)
-                                }
-                            },
-                            onDragEnd = {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            isVoicePressed = true
+                            onVoiceStart()
+                            var canceled = false
+                            try {
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull() ?: break
+                                    if (!change.pressed) break
+                                    val slideUpPx = -change.position.y
+                                    if (slideUpPx > cancelThresholdPx) {
+                                        if (!canceled) {
+                                            canceled = true
+                                            onSlidingToCancelChange(true)
+                                        }
+                                    } else {
+                                        if (canceled) {
+                                            canceled = false
+                                            onSlidingToCancelChange(false)
+                                        }
+                                    }
+                                } while (true)
+                            } catch (_: kotlinx.coroutines.CancellationException) {
+                            } finally {
                                 isVoicePressed = false
-                                onVoiceEnd(false)
-                            },
-                            onDragCancel = {
-                                isVoicePressed = false
-                                onVoiceEnd(true)
+                                onVoiceEnd(canceled)
                             }
-                        )
+                        }
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -804,7 +955,7 @@ fun ChatInputBar(
                     Icons.Default.Mic,
                     contentDescription = "语音输入",
                     tint = micTint,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(30.dp)
                 )
             }
 
@@ -855,15 +1006,9 @@ fun ChatInputBar(
 
 @Composable
 private fun RecordingPopup(
-    isSlidingToCancel: Boolean
+    isSlidingToCancel: Boolean,
+    isModelReady: Boolean = false
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "recording_anim")
-    val waveAnim by infiniteTransition.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1200), RepeatMode.Reverse),
-        label = "wave"
-    )
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -881,7 +1026,7 @@ private fun RecordingPopup(
         ) {
             Box(
                 modifier = Modifier
-                    .size(if (isSlidingToCancel) 120.dp else 128.dp)
+                    .size(if (isSlidingToCancel) 120.dp else 140.dp)
                     .background(
                         color = if (isSlidingToCancel)
                             Color(0xFFFF4444)
@@ -892,55 +1037,32 @@ private fun RecordingPopup(
                 contentAlignment = Alignment.Center
             ) {
                 if (isSlidingToCancel) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "↑",
-                            fontSize = 28.sp,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "取消发送",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.White
-                        )
-                    }
+                    Text(
+                        text = "↑ 取消发送",
+                        fontSize = 20.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
                 } else {
-                    Box(contentAlignment = Alignment.Center) {
-                        for (i in 0..3) {
-                            val alpha = ((waveAnim * 4 - i.toFloat()).coerceIn(0f, 1f)) * 0.5f
-                            if (alpha > 0f) {
-                                Box(
-                                    modifier = Modifier
-                                        .size((48 + i * 20).dp)
-                                        .scale(1f + waveAnim * 0.15f)
-                                        .background(
-                                            color = Color.White.copy(alpha = alpha * 0.3f),
-                                            shape = RoundedCornerShape(50)
-                                        )
-                                )
-                            }
-                        }
-                        Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(40.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(48.dp)
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = if (isSlidingToCancel) "松开手指，取消发送" else "手指上滑，取消发送",
-                style = MaterialTheme.typography.labelMedium,
+                text = when {
+                    isSlidingToCancel -> "松开手指，取消发送"
+                    !isModelReady -> "准备语音识别中..."
+                    else -> "录音中"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
                 color = Color.White,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
@@ -948,11 +1070,78 @@ private fun RecordingPopup(
                         color = if (isSlidingToCancel) Color(0xFFFF4444) else Color(0xFF3A3A3A),
                         shape = RoundedCornerShape(6.dp)
                     )
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             )
         }
     }
 }
+// ==================== 调试流程块解析 ====================
+
+private data class ContentPart(val isFlow: Boolean, val text: String)
+
+/**
+ * 解析 AI 回复中的调试流程块（【调试流程│开始】...【调试流程│结束】），
+ * 将内容拆分为"正常回复"和"流程块"两部分，流程块在 UI 上用灰色小字显示。
+ */
+private fun parseFlowBlocks(content: String): List<ContentPart> {
+    val startMarker = ChatViewModel.FLOW_START
+    val endMarker = ChatViewModel.FLOW_END
+    val result = mutableListOf<ContentPart>()
+    var remaining = content
+    while (true) {
+        val startIdx = remaining.indexOf(startMarker)
+        if (startIdx < 0) {
+            result.add(ContentPart(false, remaining.trim()))
+            break
+        }
+        if (startIdx > 0) {
+            result.add(ContentPart(false, remaining.substring(0, startIdx).trim()))
+        }
+        val afterStart = remaining.substring(startIdx + startMarker.length)
+        val endIdx = afterStart.indexOf(endMarker)
+        if (endIdx < 0) {
+            result.add(ContentPart(true, afterStart.trim()))
+            break
+        }
+        result.add(ContentPart(true, afterStart.substring(0, endIdx).trim()))
+        remaining = afterStart.substring(endIdx + endMarker.length)
+        if (remaining.isBlank()) break
+    }
+    return result.filter { it.text.isNotBlank() }
+}
+
+/** 调试流程块渲染组件：灰色边框框 + 灰色小字，置于 AI 正式回复上方 */
+@Composable
+private fun FlowDebugText(text: String) {
+    val isDark = isSystemInDarkTheme()
+    val borderColor = if (isDark) Color(0xFF616161) else Color(0xFFBDBDBD)
+    val bgColor = if (isDark) Color(0xFF1E1E1E) else Color(0xFFF5F5F5)
+    val grayColor = if (isDark) Color(0xFF9E9E9E) else Color(0xFF757575)
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = bgColor,
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Text(
+                text = "◆ 调试流程",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = grayColor
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelSmall,
+                color = grayColor
+            )
+        }
+    }
+}
+
 // ==================== Markdown ====================
 
 /**

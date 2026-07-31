@@ -19,6 +19,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import javax.inject.Inject
 
 //负责管理聊天会话、消息收发、AI 服务提供商调度以及工具指令执行的核心 ViewModel。
@@ -60,6 +61,9 @@ class ChatViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ChatUiState())//热流
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()//私有变公有
 
+    /** 当前对话的消息监听协程，切换对话时取消，避免旧对话 Flow 覆盖 UI */
+    private var messagesCollectJob: Job? = null
+
     private val _settings = MutableStateFlow(AppSettings())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
@@ -97,11 +101,16 @@ class ChatViewModel @Inject constructor(
     }
 
     fun selectConversation(id: Long) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(currentConversationId = id, error = null) }
+        // 取消上一个对话的消息监听，避免旧对话新消息覆盖当前 UI
+        messagesCollectJob?.cancel()
+        _uiState.update { it.copy(currentConversationId = id, error = null) }
+        messagesCollectJob = viewModelScope.launch {
             repository.getMessagesByConversation(id).collect { entities ->
-                val messages = entities.map { ChatMessage(it.role, it.content, it.timestamp) }
-                _uiState.update { it.copy(messages = messages) }
+                // 仅当当前选中的对话是 id 时才更新，防止旧 collect 残留竞态
+                if (_uiState.value.currentConversationId == id) {
+                    val messages = entities.map { ChatMessage(it.role, it.content, it.timestamp) }
+                    _uiState.update { it.copy(messages = messages) }
+                }
             }
         }
     }
@@ -214,7 +223,9 @@ class ChatViewModel @Inject constructor(
      * 6. 更新并持久化最终完整状态。
      */
     private fun doSendWithTools(convId: Long, content: String, settings: AppSettings) {
-        val userMsg = ChatMessage(role = "user", content = content)
+        // 统一时间戳：内存与数据库使用同一个值，避免 UI 与 Flow 竞态导致重复显示
+        val userTimestamp = System.currentTimeMillis()
+        val userMsg = ChatMessage(role = "user", content = content, timestamp = userTimestamp)
         _uiState.update { it.copy(
             messages = it.messages + userMsg,
             isLoading = true,
@@ -226,7 +237,8 @@ class ChatViewModel @Inject constructor(
             repository.insertMessage(MessageEntity(
                 conversationId = convId,
                 role = "user",
-                content = content
+                content = content,
+                timestamp = userTimestamp
             ))
         }
 
@@ -248,70 +260,117 @@ class ChatViewModel @Inject constructor(
                 //     fullContent += chunk
                 //     _uiState.update { it.copy(streamingContent = fullContent) }
                 // }
-                val fullContent = chatClient.sendMessage(messages, settings)
+                val fullContent = chatClient.sendMessageSafe(messages, settings)
 
                 // 3. 解析并执行工具指令
                 val (processedContent, toolResults) = executeToolsInContent(fullContent)
 
                 val finalContent: String
                 if (toolResults.isNotEmpty()) {
-                    // 4. 构建工具执行结果上下文，发起第二轮总结请求
-                    val toolResultText = buildString {
+                    // ===== 场景B：有命令执行 → 必须核实系统返回值 =====
+                    val (summary, toolResultText) = summarizeToolResults(messages, processedContent, toolResults, settings)
+                    val reply = if (summary.isNotBlank()) summary else toolResultText
+                    val flowBody = buildString {
+                        appendLine("① 第一轮 AI 回复（含命令标记）：")
+                        appendLine(fullContent.trim())
                         appendLine()
-                        appendLine("---")
-                        appendLine("系统执行结果：")
-                        toolResults.forEach { r ->
-                            val status = if (r.success) "✓" else "✗"
-                            appendLine("$status ${r.action}: ${r.message}")
+                        appendLine("② 系统命令执行结果（已核实）：")
+                        appendLine(toolResultText.trim())
+                        if (summary.isNotBlank()) {
+                            appendLine()
+                            appendLine("③ 第二轮 AI 总结汇报：")
+                            appendLine(summary.trim())
                         }
-                        appendLine("---")
                     }
-
-                    val secondMessages = messages + listOf(
-                        ChatMessage(role = "assistant", content = processedContent),
-                        ChatMessage(role = "user", content = "请根据以上执行结果，用中文向我汇报。")
+                    finalContent = wrapDebugFlow(reply, flowBody)
+                } else if (detectHallucinatedExecution(fullContent)) {
+                    // ===== 场景A-2：AI 声称执行了命令但没有 [SHELL:] 标记（幻觉）→ 纠正 =====
+                    val hallucinationMessages = messages + listOf(
+                        ChatMessage(role = "assistant", content = fullContent),
+                        ChatMessage(role = "user", content = "系统检测到你提到了命令执行，但没有输出 [SHELL:命令] 标记。本应用只能通过 [SHELL:xxx] 标记真实执行命令。若确实需要执行命令，请重新回复并包含正确的 [SHELL:xxx] 标记；若无需执行命令，请删除编造的执行描述，直接给出答案。")
                     )
-
-                    var secondContent = ""
+                    var correctedContent = ""
                     try {
-                        // [流式写法] 暂不用，保留参考
-                        // chatClient.sendMessageStream(
-                        //     secondMessages,
-                        //     settings
-                        // ).collect { chunk ->
-                        //     secondContent += chunk
-                        //     _uiState.update {
-                        //         it.copy(streamingContent = "$processedContent\n\n$toolResultText\n\n$secondContent")
-                        //     }
-                        // }
-                        secondContent = chatClient.sendMessage(secondMessages, settings)
-                    } catch (_: Exception) {
-                        // 次轮网络等异常时降级，保留第一轮结果及原始工具执行态
-                    }
+                        correctedContent = chatClient.sendMessageSafe(hallucinationMessages, settings)
+                    } catch (_: Exception) { }
 
-                    finalContent = if (secondContent.isNotBlank()) {
-                        "$processedContent\n\n$toolResultText\n\n$secondContent"
+                    // 纠正后 AI 可能输出了 [SHELL:] 标记 → 必须再次解析执行，防止命令未执行
+                    val (processedCorrected, correctedToolResults) = executeToolsInContent(correctedContent)
+
+                    val reply: String
+                    val flowBody: String
+                    if (correctedToolResults.isNotEmpty()) {
+                        // 纠正后输出了命令标记 → 执行并二次总结
+                        val (correctedSummary, correctedToolResultText) =
+                            summarizeToolResults(messages, processedCorrected, correctedToolResults, settings)
+                        reply = if (correctedSummary.isNotBlank()) correctedSummary else correctedToolResultText
+                        flowBody = buildString {
+                            appendLine("① 第一轮 AI 回复（声称执行命令但无 [SHELL:] 标记，疑似幻觉）：")
+                            appendLine(fullContent.trim())
+                            appendLine()
+                            appendLine("⚠️ 幻觉检测：AI 声称执行了命令但未输出 [SHELL:xxx] 标记，系统未执行任何命令")
+                            appendLine()
+                            appendLine("② 纠正后 AI 输出的命令：")
+                            appendLine(processedCorrected.trim())
+                            appendLine()
+                            appendLine("③ 系统命令执行结果（已核实）：")
+                            appendLine(correctedToolResultText.trim())
+                            if (correctedSummary.isNotBlank()) {
+                                appendLine()
+                                appendLine("④ 最终总结汇报：")
+                                appendLine(correctedSummary.trim())
+                            }
+                        }
                     } else {
-                        "$processedContent\n\n$toolResultText"
+                        reply = if (correctedContent.isNotBlank()) correctedContent else fullContent
+                        flowBody = buildString {
+                            appendLine("① 第一轮 AI 回复（声称执行命令但无 [SHELL:] 标记，疑似幻觉）：")
+                            appendLine(fullContent.trim())
+                            appendLine()
+                            appendLine("⚠️ 幻觉检测：AI 声称执行了命令但未输出 [SHELL:xxx] 标记，系统未执行任何命令")
+                            if (correctedContent.isNotBlank() && correctedContent != fullContent) {
+                                appendLine()
+                                appendLine("② 纠正请求后 AI 回复：")
+                                appendLine(correctedContent.trim())
+                            }
+                        }
                     }
+                    finalContent = wrapDebugFlow(reply, flowBody)
                 } else {
-                    finalContent = processedContent
+                    // ===== 场景A-1：无命令 → 一次性直接回复，不发起第二次请求 =====
+                    val flowBody = buildString {
+                        appendLine("① 第一轮 AI 回复：")
+                        appendLine(fullContent.trim())
+                        appendLine()
+                        appendLine("ℹ️ 未检测到 [SHELL:] 命令标记，系统未执行任何命令")
+                    }
+                    finalContent = wrapDebugFlow(processedContent, flowBody)
                 }
 
-                // 5. 持久化最终结果
+                // 5. 持久化最终结果（统一时间戳，与内存消息一致）
+                val assistantTimestamp = System.currentTimeMillis()
                 repository.insertMessage(MessageEntity(
                     conversationId = convId,
                     role = "assistant",
-                    content = finalContent
+                    content = finalContent,
+                    timestamp = assistantTimestamp
                 ))
                 repository.updateConversationTitle(convId, getConversationTitle(finalContent))
 
-                val assistantMsg = ChatMessage(role = "assistant", content = finalContent)
-                _uiState.update { it.copy(
-                    messages = it.messages + assistantMsg,
-                    isLoading = false,
-                    streamingContent = ""
-                ) }
+                val assistantMsg = ChatMessage(role = "assistant", content = finalContent, timestamp = assistantTimestamp)
+                _uiState.update { state ->
+                    // 防重复：若数据库 Flow 已将该消息写入 messages，则不再追加
+                    val alreadyExists = state.messages.any { it.timestamp == assistantTimestamp }
+                    if (alreadyExists) {
+                        state.copy(isLoading = false, streamingContent = "")
+                    } else {
+                        state.copy(
+                            messages = state.messages + assistantMsg,
+                            isLoading = false,
+                            streamingContent = ""
+                        )
+                    }
+                }
             } catch (e: Exception) {
                 _uiState.update { it.copy(
                     isLoading = false,
@@ -338,17 +397,119 @@ class ChatViewModel @Inject constructor(
         2. 查询类命令直接输出 [SHELL:xxx] 并获取结果即可
         3. 危险操作（重启、关机等）需要先向用户确认
         4. 如果你不确定具体的 Shell 命令，告诉用户暂不支持
-        5. 用中文回复用户
+        5. 严禁编造执行结果：你无法自行执行命令，只有输出 [SHELL:xxx] 标记后系统才会真正执行；未输出标记时绝对不要声称"已执行"，也不要编造命令输出或执行结果
+        6. 若命令执行失败或无返回输出，如实报告错误，不要假装成功
+        7. 用中文回复用户
         """.trimIndent()
 
         return if (userPrompt.isNotBlank()) "$userPrompt\n\n$tools" else tools
+    }
+
+    /**
+     * 检测 AI 是否"声称执行了命令"但没有输出 [SHELL:xxx] 标记（AI 幻觉）。
+     * 有标记时交由正常执行流程处理；无标记但声称执行 → 判定为幻觉，需二次纠正。
+     */
+    private fun detectHallucinatedExecution(content: String): Boolean {
+        val hasMarkers = Regex("""\[SHELL:[^\]]+\]""").containsMatchIn(content)
+        if (hasMarkers) return false
+        val claims = listOf(
+            "已执行命令", "执行了命令", "命令已执行", "命令执行成功", "命令执行失败",
+            "我执行了", "已经执行", "执行完成", "命令返回", "执行结果", "命令输出",
+            "运行结果", "已运行", "执行成功", "执行失败"
+        )
+        return claims.any { content.contains(it) }
+    }
+
+    /** 调试流程块的开始/结束标记，UI 端据此渲染灰色小字 */
+    companion object {
+        const val FLOW_START = "【调试流程│开始】"
+        const val FLOW_END = "【调试流程│结束】"
+
+        /** 把完整调试流程与最终回复拼成一条消息：流程块在上（灰色框），正式回复紧跟其后 */
+        fun wrapDebugFlow(normalReply: String, flowBody: String): String {
+            val reply = normalReply.trim()
+            return buildString {
+                appendLine(FLOW_START)
+                append(flowBody.trim())
+                appendLine()
+                appendLine(FLOW_END)
+                if (reply.isNotBlank()) {
+                    appendLine()
+                    appendLine()
+                    append(reply)
+                }
+            }
+        }
+
+        /** 剥离调试流程块，供 TTS 朗读使用（只读流程块下方的正式回复内容） */
+        fun stripDebugFlow(content: String): String {
+            var text = content
+            val start = text.indexOf(FLOW_START)
+            val end = text.indexOf(FLOW_END)
+            if (start >= 0 && end > start) {
+                text = text.substring(end + FLOW_END.length)
+            }
+            // 清理残留的 [SHELL:xxx] 命令标记，避免 TTS 朗读命令文本
+            return text.replace(Regex("""\[SHELL:[^\]]+\]"""), "").trim()
+        }
+
+        /** 二次总结请求的固定指令：要求 AI 简洁实用地如实汇报真实执行结果 */
+        const val SUMMARY_PROMPT = "以上是系统实际执行的真实结果。请用中文简洁实用地汇报：用一两句话直接说明命令是否执行成功及关键结果。不要客套话、不要重复、不要解释过程，直接给结论。执行失败就简短说明原因，无法核实就如实说明，不要编造任何输出。"
+    }
+
+    /**
+     * 构建"已核实"的真实执行结果文本（区分 成功有输出 / 失败 / 无输出无法核实）。
+     * 供二次总结请求和调试流程块使用。
+     */
+    private fun buildToolResultText(toolResults: List<SysResult>): String = buildString {
+        appendLine()
+        appendLine("---")
+        appendLine("系统真实执行结果（严禁编造，必须如实汇报）：")
+        toolResults.forEach { r ->
+            when {
+                r.success && r.output.isNotBlank() -> {
+                    appendLine("✓ 命令[${r.action}] 执行成功，返回：")
+                    appendLine(r.output.take(800))
+                }
+                !r.success -> {
+                    appendLine("✗ 命令[${r.action}] 执行失败：${r.message}")
+                }
+                else -> {
+                    appendLine("⚠️ 命令[${r.action}] 已执行但无任何返回输出，无法核实，需视为异常并如实告知用户。")
+                }
+            }
+        }
+        appendLine("---")
+    }
+
+    /**
+     * @return Pair(总结文本, 工具结果文本)；总结文本为空表示总结失败（调用方应降级展示工具结果）
+     */
+    private suspend fun summarizeToolResults(
+        messages: List<ChatMessage>,
+        processedContent: String,
+        toolResults: List<SysResult>,
+        settings: AppSettings
+    ): Pair<String, String> {
+        val toolResultText = buildToolResultText(toolResults)
+        val secondMessages = messages + listOf(
+            ChatMessage(role = "assistant", content = processedContent),
+            ChatMessage(role = "user", content = SUMMARY_PROMPT)
+        )
+        var summary = ""
+        try {
+            summary = chatClient.sendMessageSafe(secondMessages, settings)
+        } catch (_: Exception) {
+            // 次轮网络等异常时降级，展示真实执行结果而不是 AI 编造内容
+        }
+        return summary to toolResultText
     }
 
     // 匹配ai回复的格式
     private suspend fun executeToolsInContent(content: String): Pair<String, List<SysResult>> {
         val toolRegex = Regex("""\[SHELL:([^\]]+)\]""")
         val matches = toolRegex.findAll(content)
-        
+
         if (!matches.any()) return Pair(content, emptyList())
 
         val results = mutableListOf<SysResult>()
@@ -360,17 +521,28 @@ class ChatViewModel @Inject constructor(
             results.add(result)
 
             val replacement = buildString {
-                val status = if (result.success) "✓" else "✗"
-                appendLine()
-                appendLine("---")
-                appendLine("**$status ${result.action}**")
-                appendLine("${result.message}")
-                if (result.output.isNotBlank() && result.output.length < 500) {
-                    appendLine("```")
-                    appendLine(result.output.take(800))
-                    appendLine("```")
+                // 核实状态：成功且有输出 / 失败 / 成功但无输出（无法核实）
+                when {
+                    result.success && result.output.isNotBlank() -> {
+                        appendLine()
+                        appendLine("---")
+                        appendLine("**✓ ${result.action}**（执行成功，返回：）")
+                        appendLine(result.output.take(800))
+                        appendLine("---")
+                    }
+                    !result.success -> {
+                        appendLine()
+                        appendLine("---")
+                        appendLine("**✗ ${result.action}**（执行失败：${result.message}）")
+                        appendLine("---")
+                    }
+                    else -> {
+                        appendLine()
+                        appendLine("---")
+                        appendLine("**⚠️ ${result.action}**（已执行但无任何返回输出，无法核实）")
+                        appendLine("---")
+                    }
                 }
-                appendLine("---")
             }
             processed = processed.replace(match.value, replacement)
         }

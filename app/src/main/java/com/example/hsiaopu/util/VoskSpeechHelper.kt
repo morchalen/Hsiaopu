@@ -16,27 +16,22 @@ import org.vosk.android.RecognitionListener
 import org.vosk.android.SpeechService
 import java.io.File
 import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.zip.ZipInputStream
 
 /**
  * Vosk 语音识别辅助类。
- * 管理模型下载和语音识别，基于 Vosk Android SpeechService。
+ * 模型打包在 APK 的 assets 目录中，首次使用从 assets 解压，无需网络下载。
  */
 class VoskSpeechHelper(private val context: Context) {
 
     companion object {
         private const val TAG = "VoskSpeechHelper"
-        private const val MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip"
+        private const val ASSETS_MODEL_ZIP = "vosk-model-small-cn-0.22.zip"
         private const val MODEL_DIR_NAME = "vosk-model-small-cn-0.22"
         private const val SAMPLE_RATE = 16000.0f
     }
 
     var isModelReady: Boolean = false
-        private set
-
-    var downloadProgress: Float = 0f
         private set
 
     var isRecording: Boolean = false
@@ -49,9 +44,10 @@ class VoskSpeechHelper(private val context: Context) {
     private var model: Model? = null
     private var recognizer: Recognizer? = null
     private var speechService: SpeechService? = null
+    private var isInitializing = false // 防止重复初始化
 
     enum class State {
-        MODEL_DOWNLOADING,
+        MODEL_EXTRACTING,
         MODEL_READY,
         RECORDING,
         RECOGNIZING,
@@ -99,78 +95,65 @@ class VoskSpeechHelper(private val context: Context) {
         }
     }
 
-    fun isModelDownloaded(): Boolean {
-        return isModelDirValid()
-    }
-
+    /**
+     * 初始化模型：已就绪则跳过，已下载则加载，否则从 assets 解压。
+     */
     fun initialize(scope: CoroutineScope) {
-        if (isModelReady) {
-            Log.d(TAG, "模型已就绪，跳过初始化")
+        if (isModelReady || isInitializing) return
+        if (isModelDirValid()) {
+            loadModel()
             return
         }
-        if (isModelDownloaded()) {
-            loadModel()
-        } else {
-            onStateChanged?.invoke(State.MODEL_DOWNLOADING)
-            scope.launch {
-                downloadModel()
+        isInitializing = true
+        onStateChanged?.invoke(State.MODEL_EXTRACTING)
+        scope.launch {
+            val success = extractModelFromAssets()
+            withContext(Dispatchers.Main) {
+                isInitializing = false
+                if (success) {
+                    loadModel()
+                } else {
+                    onStateChanged?.invoke(State.ERROR)
+                }
             }
         }
     }
 
-    private suspend fun downloadModel() = withContext(Dispatchers.IO) {
+    /** 从 assets 解压模型 ZIP 到 filesDir */
+    private suspend fun extractModelFromAssets(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val url = URL(MODEL_URL)
-            val connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = 15000
-            connection.readTimeout = 30000
-            connection.connect()
-
-            val totalSize = connection.contentLengthLong
-            var downloadedSize = 0L
-
-            val inputStream = connection.inputStream
-            val zipStream = ZipInputStream(inputStream)
-            val buffer = ByteArray(8192)
-
-            var entry = zipStream.nextEntry
-            while (entry != null) {
-                if (!entry.isDirectory) {
-                    val targetFile = File(context.filesDir, entry.name)
-                    targetFile.parentFile?.mkdirs()
-                    val fos = FileOutputStream(targetFile)
-                    var bytesRead: Int
-                    while (zipStream.read(buffer).also { bytesRead = it } != -1) {
-                        fos.write(buffer, 0, bytesRead)
-                        downloadedSize += bytesRead
-                        if (totalSize > 0) {
-                            downloadProgress = downloadedSize.toFloat() / totalSize
+            context.assets.open(ASSETS_MODEL_ZIP).use { inputStream ->
+                ZipInputStream(inputStream).use { zipStream ->
+                    val buffer = ByteArray(8192)
+                    var entry = zipStream.nextEntry
+                    while (entry != null) {
+                        if (!entry.isDirectory) {
+                            val targetFile = File(context.filesDir, entry.name)
+                            targetFile.parentFile?.mkdirs()
+                            FileOutputStream(targetFile).use { fos ->
+                                var bytesRead: Int
+                                while (zipStream.read(buffer).also { bytesRead = it } != -1) {
+                                    fos.write(buffer, 0, bytesRead)
+                                }
+                            }
                         }
+                        zipStream.closeEntry()
+                        entry = zipStream.nextEntry
                     }
-                    fos.close()
                 }
-                zipStream.closeEntry()
-                entry = zipStream.nextEntry
             }
-            zipStream.close()
-            inputStream.close()
-
-            withContext(Dispatchers.Main) {
-                downloadProgress = 1f
-                loadModel()
-            }
+            Log.d(TAG, "从 assets 解压模型成功")
+            true
         } catch (e: Exception) {
-            Log.e(TAG, "模型下载失败", e)
-            withContext(Dispatchers.Main) {
-                onStateChanged?.invoke(State.ERROR)
-            }
+            Log.e(TAG, "从 assets 解压模型失败", e)
+            false
         }
     }
 
     private fun loadModel() {
         try {
             if (!isModelDirValid()) {
-                Log.e(TAG, "模型目录无效，删除后重新下载")
+                Log.e(TAG, "模型目录无效")
                 deleteModelDir()
                 onStateChanged?.invoke(State.ERROR)
                 return
@@ -179,7 +162,7 @@ class VoskSpeechHelper(private val context: Context) {
             model = Model(getModelPath())
 
             if (!isModelNativePointerValid()) {
-                Log.e(TAG, "模型原生指针无效，模型文件可能损坏，删除后重新下载")
+                Log.e(TAG, "模型原生指针无效，模型文件可能损坏")
                 model = null
                 deleteModelDir()
                 onStateChanged?.invoke(State.ERROR)
@@ -189,7 +172,7 @@ class VoskSpeechHelper(private val context: Context) {
             isModelReady = true
             onStateChanged?.invoke(State.MODEL_READY)
             Log.d(TAG, "Vosk 模型加载成功")
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "模型加载失败", e)
             model = null
             isModelReady = false
@@ -197,7 +180,7 @@ class VoskSpeechHelper(private val context: Context) {
         }
     }
 
-    /** 删除模型目录（用于模型损坏时清理） */
+    /** 删除模型目录 */
     private fun deleteModelDir() {
         try {
             val modelDir = File(getModelPath())
@@ -319,6 +302,7 @@ class VoskSpeechHelper(private val context: Context) {
             recognizer = null
             model = null
             isModelReady = false
+            isInitializing = false
         } catch (e: Exception) {
             Log.w(TAG, "资源释放异常", e)
         }

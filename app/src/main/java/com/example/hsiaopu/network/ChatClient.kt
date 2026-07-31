@@ -13,6 +13,7 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import android.util.Log
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
@@ -36,6 +37,10 @@ data class ProviderInfo(
  */
 @Singleton
 class ChatClient @Inject constructor() {
+
+    companion object {
+        private const val TAG = "ChatClient"
+    }
 
     private val gson = Gson()
     private var _api: ChatApiService? = null
@@ -121,6 +126,35 @@ class ChatClient @Inject constructor() {
 
         // 7. 返回 ChatResponse 给你
         return response.choices.firstOrNull()?.message?.content ?: ""
+    }
+
+    /**
+     * 发送消息（非流式，一次性返回完整回复）
+     * 与 sendMessage 相同，但在 API 错误时返回服务端的错误信息而不是抛异常。
+     */
+    suspend fun sendMessageSafe(messages: List<ChatMessage>, settings: AppSettings): String {
+        return try {
+            sendMessage(messages, settings)
+        } catch (e: retrofit2.HttpException) {
+            val errorBody = e.response()?.errorBody()?.string()
+            val msg = parseErrorMessage(errorBody)
+            Log.e(TAG, "API 错误: code=${e.code()}, msg=$msg")
+            throw Exception(msg.ifBlank { "请求失败 (HTTP ${e.code()})" })
+        } catch (e: Exception) {
+            Log.e(TAG, "网络错误", e)
+            throw Exception("网络错误: ${e.message ?: "未知错误"}")
+        }
+    }
+
+    private fun parseErrorMessage(json: String?): String {
+        if (json.isNullOrBlank()) return ""
+        return try {
+            val jsonObj = org.json.JSONObject(json)
+            val error = jsonObj.optJSONObject("error")
+            error?.optString("message", "") ?: jsonObj.optString("message", "")
+        } catch (_: Exception) {
+            json
+        }
     }
 
     /**

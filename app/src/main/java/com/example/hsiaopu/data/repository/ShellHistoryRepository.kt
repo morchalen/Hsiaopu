@@ -20,11 +20,15 @@ class ShellHistoryRepository @Inject constructor(
     suspend fun getAllHistorySync(): List<ShellResult> =
         shellHistoryDao.getAllHistorySync().map { it.toShellResult() }
 
+    companion object {
+        private const val MAX_OUTPUT_LEN = 128 * 1024 // 128KB，预留空间以防单字段撑满 CursorWindow
+    }
+
     suspend fun insertHistory(result: ShellResult) {
         val entity = ShellHistoryEntity(
-            command = result.command,
-            stdout = result.stdout,
-            stderr = result.stderr,
+            command = result.command.take(8192),
+            stdout = result.stdout.take(MAX_OUTPUT_LEN),
+            stderr = result.stderr.take(MAX_OUTPUT_LEN),
             exitCode = result.exitCode,
             timestamp = result.timestamp
         )

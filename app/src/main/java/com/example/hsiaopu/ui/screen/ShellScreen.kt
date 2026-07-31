@@ -108,10 +108,10 @@ fun ShellScreen(
     val history by shellHistoryRepository.getAllHistory().collectAsState(initial = emptyList())
     val listState = rememberLazyListState() // 列表滚动状态
 
-    // 自动滚动到底部（初始打开 / 新命令执行时带动画）
+    // 自动滚动到底部（初始打开瞬间到位，新命令执行时也瞬间到位）
     LaunchedEffect(history.size, isRunning) {
         if (history.isNotEmpty()) {
-            listState.animateScrollToItem(history.size)
+            listState.scrollToItem(history.size)
         }
     }
 
