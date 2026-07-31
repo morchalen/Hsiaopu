@@ -20,6 +20,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
+import org.json.JSONObject
 import javax.inject.Inject
 
 //负责管理聊天会话、消息收发、AI 服务提供商调度以及工具指令执行的核心 ViewModel。
@@ -43,13 +44,7 @@ class ChatViewModel @Inject constructor(
         val error: String? = null//错误信息
     )
 
-    // Shell 命令执行结果
-    data class SysResult(
-        val action: String,
-        val success: Boolean,
-        val message: String,
-        val output: String
-    )
+    // 技能执行结果：类型定义见 ToolSkill.kt 的 SkillResult（原 SysResult 已迁移至 Skill 体系）
     // 暴露给外部依赖的组件
     val dataStore: SettingsDataStore get() = settingsDataStore
     //这里的get是固定的写法，使用空格间隔一下，这个是每次访问dataStore的时候，就使用get函数，得到一个settingsDataStore对象
@@ -384,27 +379,12 @@ class ChatViewModel @Inject constructor(
         }
     }
     //让ai返回shell工具指令
+    /**
+     * 构建 System Prompt：技能说明由 Skill 注册表动态生成（见 ToolSkill.kt）。
+     * 给 AI 加新技能时无需修改这里的文案，只需在注册表加一行。
+     */
     private fun buildToolSystemPrompt(userPrompt: String): String {
-        val tools = """
-        你是一个运行在 Android 设备上的 AI 助手。你可以通过 Shizuku 执行 Shell 命令来控制设备。
-
-        当你需要执行 Shell 命令时，在回复中包含以下格式的标记（每行一个，放在回复末尾）：
-        [SHELL:具体的 Shell 命令]
-
-        例如：用户说"打开 WiFi"，你输出 [SHELL:svc wifi enable]
-        例如：用户说"查看电量"，你输出 [SHELL:dumpsys battery]
-        例如：用户说"重启手机"，你输出 [SHELL:reboot]
-
-        规则：
-        1. 当用户要求操作设备时，先输出 [SHELL:xxx] 执行命令，然后根据执行结果回复用户
-        2. 查询类命令直接输出 [SHELL:xxx] 并获取结果即可
-        3. 危险操作（重启、关机等）需要先向用户确认
-        4. 如果你不确定具体的 Shell 命令，告诉用户暂不支持
-        5. 严禁编造执行结果：你无法自行执行命令，只有输出 [SHELL:xxx] 标记后系统才会真正执行；未输出标记时绝对不要声称"已执行"，也不要编造命令输出或执行结果
-        6. 若命令执行失败或无返回输出，如实报告错误，不要假装成功
-        7. 用中文回复用户
-        """.trimIndent()
-
+        val tools = ToolSkillRegistry.buildToolPrompt()
         return if (userPrompt.isNotBlank()) "$userPrompt\n\n$tools" else tools
     }
 
@@ -468,7 +448,7 @@ class ChatViewModel @Inject constructor(
      * 构建"已核实"的真实执行结果文本（区分 成功有输出 / 失败 / 无输出无法核实）。
      * 干净可读的格式：既用于调试流程块，也用于二次总结失败时作为正式回复（可被朗读）。
      */
-    private fun buildToolResultText(toolResults: List<SysResult>): String = buildString {
+    private fun buildToolResultText(toolResults: List<SkillResult>): String = buildString {
         toolResults.forEachIndexed { i, r ->
             if (i > 0) appendLine()
             when {
@@ -492,7 +472,7 @@ class ChatViewModel @Inject constructor(
     private suspend fun summarizeToolResults(
         messages: List<ChatMessage>,
         processedContent: String,
-        toolResults: List<SysResult>,
+        toolResults: List<SkillResult>,
         settings: AppSettings
     ): Pair<String, String> {
         val toolResultText = buildToolResultText(toolResults)
@@ -509,49 +489,68 @@ class ChatViewModel @Inject constructor(
         return summary to toolResultText
     }
 
-    // 匹配ai回复的格式
-    private suspend fun executeToolsInContent(content: String): Pair<String, List<SysResult>> {
-        val toolRegex = Regex("""\[SHELL:([^\]]+)\]""")
-        val matches = toolRegex.findAll(content)
-
-        if (!matches.any()) return Pair(content, emptyList())
-
-        val results = mutableListOf<SysResult>()
-        var processed = content
-
-        for (match in matches) {
-            val shellCommand = match.groupValues[1].trim()
-            val result = executeToolAction(shellCommand)
-            results.add(result)
-
-            val replacement = buildString {
-                // 核实状态：成功且有输出 / 失败 / 成功但无输出（无法核实）
-                when {
-                    result.success && result.output.isNotBlank() -> {
-                        appendLine()
-                        appendLine("---")
-                        appendLine("**✓ ${result.action}**（执行成功，返回：）")
-                        appendLine(result.output.take(800))
-                        appendLine("---")
-                    }
-                    !result.success -> {
-                        appendLine()
-                        appendLine("---")
-                        appendLine("**✗ ${result.action}**（执行失败：${result.message}）")
-                        appendLine("---")
-                    }
-                    else -> {
-                        appendLine()
-                        appendLine("---")
-                        appendLine("**⚠️ ${result.action}**（已执行但无任何返回输出，无法核实）")
-                        appendLine("---")
-                    }
-                }
+    /**
+     * 解析 AI 回复中的所有技能调用标记并执行（Skill 体系通用分发）。
+     * 执行器由本类提供（依赖 Shell/历史库等业务组件），标记格式与替换逻辑由注册表统一管理。
+     */
+    private suspend fun executeToolsInContent(content: String): Pair<String, List<SkillResult>> {
+        return ToolSkillRegistry.executeAll(content) { skill, param ->
+            when (skill.marker) {
+                "[SHELL:" -> executeToolAction(param)
+                "[SKILL:" -> executeStructuredSkill(param)
+                else -> SkillResult(skill.name, false, "暂不支持的 Skill: ${skill.marker}", "")
             }
-            processed = processed.replace(match.value, replacement)
+        }
+    }
+
+    /**
+     * 结构化 Skill 执行器。
+     * 格式：[SKILL:skill_name:{JSON参数}]
+     * 这比让 AI 直接写 Shell 更接近手机厂商内部的 Skill 封装：名称稳定、参数可校验、执行命令可控。
+     */
+    private suspend fun executeStructuredSkill(rawParam: String): SkillResult {
+        val separatorIndex = rawParam.indexOf(':')
+        if (separatorIndex <= 0) {
+            return SkillResult(rawParam, false, "Skill 格式错误，应为 skill_name:{JSON参数}", "")
         }
 
-        return Pair(processed, results)
+        val skillName = rawParam.substring(0, separatorIndex).trim()
+        val jsonText = rawParam.substring(separatorIndex + 1).trim().ifBlank { "{}" }
+        val params = try {
+            JSONObject(jsonText)
+        } catch (e: Exception) {
+            return SkillResult(skillName, false, "JSON 参数解析失败: ${e.message}", "")
+        }
+
+        val shellCommand = when (skillName) {
+            "get_battery_info" -> "dumpsys battery"
+            "get_memory_info" -> "cat /proc/meminfo | head -20"
+            "open_settings" -> "am start -a android.settings.SETTINGS"
+            "set_volume" -> buildSetVolumeCommand(params)
+            "set_brightness" -> buildSetBrightnessCommand(params)
+            else -> null
+        } ?: return SkillResult(skillName, false, "未知或参数非法的 Skill: $skillName", "")
+
+        val result = executeToolAction(shellCommand)
+        return result.copy(action = "$skillName -> $shellCommand")
+    }
+
+    private fun buildSetVolumeCommand(params: JSONObject): String? {
+        val streamName = params.optString("stream", "music")
+        val streamCode = when (streamName) {
+            "ring" -> 2
+            "music" -> 3
+            "alarm" -> 4
+            "notification" -> 5
+            else -> return null
+        }
+        val level = params.optInt("level", -1).takeIf { it in 0..15 } ?: return null
+        return "media volume --stream $streamCode --set $level"
+    }
+
+    private fun buildSetBrightnessCommand(params: JSONObject): String? {
+        val level = params.optInt("level", -1).takeIf { it in 1..255 } ?: return null
+        return "settings put system screen_brightness $level"
     }
     
     // [暂不用] 解析 shell 工具指令参数（当前使用 [SHELL:原始命令] 格式，无需解析参数）
@@ -575,23 +574,23 @@ class ChatViewModel @Inject constructor(
     // }
 
     // 本地执行 shell 命令，同时将结果写入 ShellHistory 数据库供 Shell 页面显示
-    private suspend fun executeToolAction(shellCommand: String): SysResult {
+    private suspend fun executeToolAction(shellCommand: String): SkillResult {
         return try {
             val shellResult = kotlinx.coroutines.withTimeout(30000) {
                 ShellExecutor.execute(shellCommand).first()
             }
             // 写入 ShellHistory 数据库，Shell 页面从 Room Flow 读取后自动显示
             shellHistoryRepository.insertHistory(shellResult)
-            SysResult(
+            SkillResult(
                 shellCommand,
                 shellResult.isSuccess,
                 shellResult.stdout.ifEmpty { shellResult.stderr },
                 shellResult.stdout
             )
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-            SysResult(shellCommand, false, "Shell 执行超时", "")
+            SkillResult(shellCommand, false, "Shell 执行超时", "")
         } catch (e: Exception) {
-            SysResult(shellCommand, false, "Shell 执行失败: ${e.message}", "")
+            SkillResult(shellCommand, false, "Shell 执行失败: ${e.message}", "")
         }
     }
 
