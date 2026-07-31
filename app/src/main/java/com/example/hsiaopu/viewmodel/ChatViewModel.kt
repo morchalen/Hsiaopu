@@ -246,9 +246,12 @@ class ChatViewModel @Inject constructor(
             try {
                 // 1. 构建注入了支持 Shizuku 工具调用指令的 System Prompt
                 val systemPrompt = buildToolSystemPrompt(settings.systemPrompt)
+                // 给 AI 的上下文剥离调试流程块，只保留正式回复，防止 AI 模仿【调试流程│开始】等标记
                 val messages = buildList {
                     add(ChatMessage(role = "system", content = systemPrompt))
-                    addAll(_uiState.value.messages)
+                    addAll(_uiState.value.messages.map { msg ->
+                        msg.copy(content = stripDebugFlow(msg.content))
+                    })
                 }
 
                 // [流式写法] 暂不用，保留参考
@@ -425,6 +428,9 @@ class ChatViewModel @Inject constructor(
         const val FLOW_START = "【调试流程│开始】"
         const val FLOW_END = "【调试流程│结束】"
 
+        /** 兼容全角│与半角|的流程块正则，非贪婪匹配，用于剥离流程块 */
+        private val FLOW_BLOCK_ANY_REGEX = Regex("""【调试流程[│|]开始】([\s\S]*?)【调试流程[│|]结束】""")
+
         /** 把完整调试流程与最终回复拼成一条消息：流程块在上（灰色框），正式回复紧跟其后 */
         fun wrapDebugFlow(normalReply: String, flowBody: String): String {
             val reply = normalReply.trim()
@@ -441,14 +447,9 @@ class ChatViewModel @Inject constructor(
             }
         }
 
-        /** 剥离调试流程块，供 TTS 朗读使用（只读流程块下方的正式回复内容） */
+        /** 剥离调试流程块，供 TTS 朗读使用（只读流程块下方的正式回复内容）。兼容半角|与全角│标记 */
         fun stripDebugFlow(content: String): String {
-            var text = content
-            val start = text.indexOf(FLOW_START)
-            val end = text.indexOf(FLOW_END)
-            if (start >= 0 && end > start) {
-                text = text.substring(end + FLOW_END.length)
-            }
+            var text = FLOW_BLOCK_ANY_REGEX.replace(content) { "" }
             // 清理残留的 [SHELL:xxx] 命令标记，避免 TTS 朗读命令文本
             text = text.replace(Regex("""\[SHELL:[^\]]+\]"""), "")
             // 清理单独成行的分隔线，避免 TTS 朗读特殊字符

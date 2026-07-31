@@ -1079,40 +1079,112 @@ private fun RecordingPopup(
 
 private data class ContentPart(val isFlow: Boolean, val text: String)
 
+/** 兼容全角│和半角|的调试流程块正则，非贪婪匹配保证正确配对 */
+private val FLOW_BLOCK_REGEX = Regex("""【调试流程[│|]开始】([\s\S]*?)【调试流程[│|]结束】""")
+
 /**
  * 解析 AI 回复中的调试流程块（【调试流程│开始】...【调试流程│结束】），
  * 将内容拆分为"正常回复"和"流程块"两部分，流程块在 UI 上用灰色小字显示。
+ * 兼容历史数据中可能出现的半角 | 标记。
  */
 private fun parseFlowBlocks(content: String): List<ContentPart> {
-    val startMarker = ChatViewModel.FLOW_START
-    val endMarker = ChatViewModel.FLOW_END
     val result = mutableListOf<ContentPart>()
-    var remaining = content
-    while (true) {
-        val startIdx = remaining.indexOf(startMarker)
-        if (startIdx < 0) {
-            result.add(ContentPart(false, remaining.trim()))
-            break
-        }
-        if (startIdx > 0) {
-            result.add(ContentPart(false, remaining.substring(0, startIdx).trim()))
-        }
-        val afterStart = remaining.substring(startIdx + startMarker.length)
-        val endIdx = afterStart.indexOf(endMarker)
-        if (endIdx < 0) {
-            result.add(ContentPart(true, afterStart.trim()))
-            break
-        }
-        result.add(ContentPart(true, afterStart.substring(0, endIdx).trim()))
-        remaining = afterStart.substring(endIdx + endMarker.length)
-        if (remaining.isBlank()) break
+    var lastIndex = 0
+    FLOW_BLOCK_REGEX.findAll(content).forEach { match ->
+        // 匹配前的正常文本
+        val pre = content.substring(lastIndex, match.range.first).trim()
+        if (pre.isNotBlank()) result.add(ContentPart(false, pre))
+        // 流程块内容
+        val flowText = match.groupValues[1].trim()
+        if (flowText.isNotBlank()) result.add(ContentPart(true, flowText))
+        lastIndex = match.range.last + 1
     }
-    return result.filter { it.text.isNotBlank() }
+    // 尾部正常文本
+    if (lastIndex < content.length) {
+        val tail = content.substring(lastIndex).trim()
+        if (tail.isNotBlank()) result.add(ContentPart(false, tail))
+    }
+    return result
 }
 
-/** 调试流程块渲染组件：灰色边框框 + 灰色小字，置于 AI 正式回复上方 */
+/** 调试流程中的一段：彩色标签 + 标题 + 内容 */
+private data class FlowSection(
+    val tagLabel: String,
+    val tagColor: Color,
+    val title: String,
+    val content: String
+)
+
+/**
+ * 解析调试流程文本，按 ①②③④⚠️ℹ️ 标题行切分为段落。
+ * 每段带彩色标签（第1轮=蓝 / 命令执行=橙 / 第2轮·总结=绿 / 幻觉纠正=红 / 提示=灰）。
+ */
+private fun parseFlowSections(text: String): List<FlowSection> {
+    val sections = mutableListOf<FlowSection>()
+    var currentMarker: String? = null
+    var currentTitle = StringBuilder()
+    var currentContent = StringBuilder()
+
+    fun flush() {
+        currentMarker?.let { marker ->
+            val titleText = currentTitle.toString().trim()
+            if (titleText.isNotBlank() || currentContent.isNotBlank()) {
+                val (label, color) = flowSectionInfo(marker, titleText)
+                sections.add(FlowSection(label, color, titleText, currentContent.toString().trim()))
+            }
+        }
+        currentMarker = null
+        currentTitle = StringBuilder()
+        currentContent = StringBuilder()
+    }
+
+    text.lines().forEach { line ->
+        val trimmed = line.trim()
+        val marker = when {
+            trimmed.startsWith("①") -> "①"
+            trimmed.startsWith("②") -> "②"
+            trimmed.startsWith("③") -> "③"
+            trimmed.startsWith("④") -> "④"
+            trimmed.startsWith("⚠️") || trimmed.startsWith("⚠") -> "⚠️"
+            trimmed.startsWith("ℹ️") || trimmed.startsWith("ℹ") -> "ℹ️"
+            else -> null
+        }
+        if (marker != null) {
+            flush()
+            currentMarker = marker
+            currentTitle.append(trimmed.substringAfter(marker).trim())
+        } else if (currentMarker != null) {
+            // 过滤掉可能残留的流程块标记行，避免在框内显示【调试流程│开始】等原始标记
+            val hasFlowMarker = trimmed.contains("【调试流程") &&
+                    (trimmed.contains("开始】") || trimmed.contains("结束】"))
+            if (!hasFlowMarker) {
+                currentContent.appendLine(line)
+            }
+        }
+    }
+    flush()
+    return sections
+}
+
+/** 根据标记和标题返回标签文字与颜色 */
+private fun flowSectionInfo(marker: String, title: String): Pair<String, Color> {
+    return when {
+        marker == "⚠️" -> "幻觉纠正" to Color(0xFFE74C3C)   // 红
+        marker == "ℹ️" -> "提示" to Color(0xFF95A5A6)       // 灰
+        title.contains("第一轮") -> "第1轮" to Color(0xFF4A90D9)      // 蓝
+        title.contains("最终总结") || title.contains("总结汇报") ->
+            "总结" to Color(0xFF27AE60)                     // 绿
+        title.contains("第二轮") -> "第2轮" to Color(0xFF27AE60)      // 绿
+        title.contains("执行结果") -> "命令执行" to Color(0xFFE67E22) // 橙
+        title.contains("命令") -> "命令" to Color(0xFFE67E22)        // 橙
+        else -> "步骤" to Color(0xFF95A5A6)
+    }
+}
+
+/** 调试流程块渲染组件：灰色边框框，内部每段带彩色标签，置于 AI 正式回复上方 */
 @Composable
 private fun FlowDebugText(text: String) {
+    val sections = remember(text) { parseFlowSections(text) }
     val isDark = isSystemInDarkTheme()
     val borderColor = if (isDark) Color(0xFF616161) else Color(0xFFBDBDBD)
     val bgColor = if (isDark) Color(0xFF1E1E1E) else Color(0xFFF5F5F5)
@@ -1132,11 +1204,48 @@ private fun FlowDebugText(text: String) {
                 fontWeight = FontWeight.Bold,
                 color = grayColor
             )
+            Spacer(modifier = Modifier.height(8.dp))
+            sections.forEach { section ->
+                FlowSectionRow(section = section, contentColor = grayColor)
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+        }
+    }
+}
+
+/** 单段流程渲染：彩色标签 + 同色标题 + 灰色内容 */
+@Composable
+private fun FlowSectionRow(section: FlowSection, contentColor: Color) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // 彩色标签
+            Box(
+                modifier = Modifier
+                    .background(section.tagColor, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 1.dp)
+            ) {
+                Text(
+                    text = section.tagLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.width(6.dp))
+            // 标题（与标签同色）
+            Text(
+                text = section.title,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = section.tagColor
+            )
+        }
+        if (section.content.isNotBlank()) {
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = text,
+                text = section.content,
                 style = MaterialTheme.typography.labelSmall,
-                color = grayColor
+                color = contentColor
             )
         }
     }
