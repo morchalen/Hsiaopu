@@ -235,9 +235,9 @@ fun OnboardingScreen(
                 //   - 最后一页（currentPage == pageCount - 1）→ 不显示左侧按钮
                 // =============================================================
                 if (currentPage == 0) {
-                    // 第一页：显示"跳过"
+                    // 第一页：显示"以后再说"
                     TextButton(onClick = onComplete) {
-                        Text("跳过", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                        Text("以后再说", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
                     }
                 } else {
                     // 中间页：显示"上一页"
@@ -274,7 +274,7 @@ fun OnboardingScreen(
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary
                     ),
-                    shape = RoundedCornerShape(24.dp), // 圆角 24dp 的按钮
+                    shape = CornerFull, // 胶囊按钮（iOS 风格）
                     modifier = Modifier
                         .height(48.dp)
                         .scale(buttonScale) // 应用缩放动画
@@ -341,18 +341,18 @@ private fun OnboardingPageContent(
         // ---------------------------------------------------------------------
         Box(
             modifier = Modifier
-                .size(120.dp)                          // 容器 120x120 dp
+                .size(88.dp)                          // 容器 88x88 dp（iOS 柔和图标）
                 .clip(CircleShape)                      // 裁剪成圆形
-                .background(SystemGray4),
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
             contentAlignment = Alignment.Center         // 图标居中
         ) {
          
-            // 图标：大小为 56dp * pulse，tint 为白色
+            // 图标：大小为 40dp，tint 为主题色（iOS 柔和风格）
             Icon(
                 painter = rememberVectorPainter(data.icon),
                 contentDescription = data.title,
-                modifier = Modifier.size(56.dp),
-                tint = White
+                modifier = Modifier.size(40.dp),
+                tint = MaterialTheme.colorScheme.primary
             )
         }
 

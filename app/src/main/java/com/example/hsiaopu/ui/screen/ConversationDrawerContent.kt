@@ -3,7 +3,6 @@ package com.example.hsiaopu.ui.screen
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -221,7 +220,7 @@ private fun DrawerItem(//抽屉项
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false },
                     shape = RoundedCornerShape(12.dp),
-                    containerColor = if (isSystemInDarkTheme()) DarkSurfaceVariant else LightSurfaceVariant,
+                    containerColor = if (LocalIsDark.current) DarkSurfaceVariant else LightSurfaceVariant,
                     shadowElevation = 0.dp,//关闭阴影
                     tonalElevation = 0.dp//关闭阴影
                 ) {
@@ -230,7 +229,7 @@ private fun DrawerItem(//抽屉项
                         text = {
                             Text(
                                 "重命名",
-                                color = if (isSystemInDarkTheme()) DarkOnSurface else LightOnSurface
+                                color = if (LocalIsDark.current) DarkOnSurface else LightOnSurface
                             )
                         },
                         onClick = {

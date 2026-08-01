@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        // Android 15+ 强制 edge-to-edge；状态栏图标明暗由 Theme.kt 按 App 主题控制（保证状态栏始终可见）
         enableEdgeToEdge()
 
         // ComponentActivity.setContent 这个扩展函数的 Lambda 语法写的哈

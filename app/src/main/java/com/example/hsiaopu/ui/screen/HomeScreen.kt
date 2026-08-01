@@ -20,7 +20,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -243,8 +242,8 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
         }
         Toast.makeText(
             context,
-            "持续对话已开启：说话后停顿2秒自动发送，AI回复朗读完自动继续聆听；再点麦克风结束",
-            Toast.LENGTH_LONG
+            "持续对话中 · 点击麦克风结束",
+            Toast.LENGTH_SHORT
         ).show()
     }
 
@@ -493,9 +492,13 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
     // ========== 聊天内容主体（手机和平板共用） ==========
     //将 @Composable 函数赋值给变量，组件嵌套调用
     val chatContent = @Composable {
-        Column(modifier = Modifier.fillMaxSize().imePadding()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding()
+        ) {
 
-            // 使用 TopAppBar 作为页面锚点（规范六：每个主页面必须有 TopAppBar）
+            // 单行顶栏：标题 + 三个操作按钮（保持系统原版状态栏）
             TopAppBar(
                 title = {
                     Text(
@@ -836,16 +839,17 @@ fun MessageBubble(
     val isUser = message.role == "user"
     val context = LocalContext.current
     val dateFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-    val isDark = isSystemInDarkTheme()
-    val userBubbleColor = if (isDark) UserBubbleDark else UserBubbleLight
-    val assistantBubbleColor = Color.Transparent
+    val isDark = LocalIsDark.current
+    // iMessage 风格：用户=iOS 蓝底白字，AI=灰底
+    val bubbleColor = if (isUser) UserBubbleBlue else (if (isDark) AssistantBubbleDark else AssistantBubbleLight)
+    val bubbleTextColor = if (isUser) White else Color.Unspecified
 
     // ========== 外层容器：控制整条消息的左右对齐 ==========
     Column(
         modifier = Modifier.fillMaxWidth(),//尽量撑满宽度
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
-        // ========== 1顶部信息行：发送者标签 + 时间戳 ==========
+        // ========== 1顶部信息行：头像 + 时间戳（iOS 式，去掉 You/AI 文字标签） ==========
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(//padding是内边距，下面用来描述占据的面积位置
@@ -854,14 +858,23 @@ fun MessageBubble(
                 bottom = 4.dp// 底部留白4dp（间距阶梯 xs）
             )
         ) {
-            //1： AI 消息：显示 "AI" 标签
+            //1： AI 消息：圆形小头像 + 时间戳
             if (!isUser) {
-                Text(
-                    text = if (isStreaming) "AI…" else "AI",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "H",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Spacer(modifier = Modifier.width(6.dp))
             }
 
             //2： 时间戳（HH:mm 格式）
@@ -870,29 +883,14 @@ fun MessageBubble(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
             )
-
-            //3： 用户消息：显示 "You" 标签
-            if (isUser) {
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "You",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                )
-            }
         }
 
         // ========== 2气泡主体 + 长按复制菜单 ==========
         Box {
             // 气泡容器
             Surface(
-                color = if (isUser) userBubbleColor else assistantBubbleColor,
-                shape = RoundedCornerShape(
-                    topStart = 16.dp,
-                    topEnd = 16.dp,
-                    bottomStart = if (isUser) 16.dp else 4.dp,   // 用户：右下小圆角，AI：左下小圆角
-                    bottomEnd = if (isUser) 4.dp else 16.dp       // 模拟对话气泡的尾巴效果
-                ),
+                color = bubbleColor,
+                shape = bubbleShape(isUser),
                 modifier = Modifier
                     .let { modifier ->
                         if (isUser) {
@@ -914,6 +912,7 @@ fun MessageBubble(
                 if (isUser) {
                     MarkdownText(
                         content = message.content,
+                        contentColor = bubbleTextColor,
                         modifier = Modifier.padding(12.dp)
                     )
                 } else {
@@ -992,20 +991,28 @@ fun MessageBubble(
 
 @Composable
 fun LoadingDots() {
-    var step by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) { while (true) { delay(300L); step = (step + 1) % 3 } }
-    Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // iOS 风格：三点依次淡入淡出（opacity 呼吸），无跳动缩放
+    Row(
+        modifier = Modifier.padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         repeat(3) { i ->
-            val scale by animateFloatAsState(
-                targetValue = if (step == i) 1.3f else 1f,
-                animationSpec = tween(300),
-                label = "dot_scale"
+            val infinite = rememberInfiniteTransition(label = "typing_$i")
+            val alpha by infinite.animateFloat(
+                initialValue = 0.25f,
+                targetValue = 0.9f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(400, delayMillis = i * 200, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "typing_alpha_$i"
             )
-            Box(modifier = Modifier
-                .size(8.dp)
-                .scale(scale)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = when { step == i -> 0.9f; (step + 1) % 3 == i -> 0.5f; else -> 0.25f })))
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = alpha))
+            )
         }
     }
 }
@@ -1074,8 +1081,8 @@ fun ChatInputBar(
             Box(
                 modifier = Modifier
                     .width(96.dp)
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(24.dp))
+                    .height(56.dp)
+                    .clip(RoundedCornerShape(28.dp))
                     .background(micBg)
                     .pointerInput(Unit) {
                         val density = this.density
@@ -1134,7 +1141,7 @@ fun ChatInputBar(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "长按/短按",
+                        text = "语音",
                         style = MaterialTheme.typography.labelMedium,
                         color = micTint
                     )
@@ -1143,14 +1150,16 @@ fun ChatInputBar(
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            // 输入框
+            // 输入框（单行高 48dp，与左右按钮对齐；多行自动增高）
             OutlinedTextField(
                 value = inputText,
                 onValueChange = onInputChange,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(max = 120.dp),
                 placeholder = {
                     Text(
-                        "发送指令",
+                        "输入消息…",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                     )
@@ -1158,21 +1167,21 @@ fun ChatInputBar(
                 maxLines = 5,
                 textStyle = MaterialTheme.typography.bodyLarge,
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                    unfocusedBorderColor = MaterialTheme.colorScheme.surfaceVariant,
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent,
                     focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant
                 ),
-                shape = RoundedCornerShape(20.dp)
+                shape = CornerLG
             )
 
             Spacer(modifier = Modifier.width(4.dp))
 
-            // 发送按钮
+            // 发送按钮（56dp 圆形，与语音按钮/输入框同高）
             val sendEnabled = inputText.isNotBlank() && !isLoading
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(56.dp)
                     .clip(RoundedCornerShape(50))
                     .background(
                         color = if (sendEnabled)
@@ -1195,7 +1204,7 @@ fun ChatInputBar(
                         MaterialTheme.colorScheme.onPrimary
                     else
                         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
@@ -1225,7 +1234,7 @@ private fun ContinuousModeIndicator(
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "continuous_pulse")
     val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.35f,
+        initialValue = 0.6f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
         label = "continuous_pulse_alpha"
@@ -1335,7 +1344,7 @@ private fun RecordingPopup(
             Text(
                 text = when {
                     isSlidingToCancel -> "松开手指，取消发送"
-                    !isModelReady -> "准备语音识别中..."
+                    !isModelReady -> "正在准备…"
                     else -> "录音中"
                 },
                 style = MaterialTheme.typography.titleMedium,
@@ -1462,7 +1471,7 @@ private fun flowSectionInfo(marker: String, title: String): Pair<String, Color> 
 @Composable
 private fun FlowDebugText(text: String) {
     val sections = remember(text) { parseFlowSections(text) }
-    val isDark = isSystemInDarkTheme()
+    val isDark = LocalIsDark.current
     val borderColor = if (isDark) Color(0xFF616161) else Color(0xFFBDBDBD)
     val bgColor = if (isDark) Color(0xFF1E1E1E) else Color(0xFFF5F5F5)
     val grayColor = if (isDark) Color(0xFF9E9E9E) else Color(0xFF757575)
@@ -1540,33 +1549,37 @@ private fun FlowSectionRow(section: FlowSection, contentColor: Color) {
  * @param modifier 可选的修饰符，用于自定义组件布局和样式
  */
 @Composable
-fun MarkdownText(content: String, modifier: Modifier = Modifier) {
+fun MarkdownText(content: String, modifier: Modifier = Modifier, contentColor: Color? = null) {
     val segments = remember(content) { parseMarkdown(content) }
-    val isDark = isSystemInDarkTheme()
+    val isDark = LocalIsDark.current
     val codeBlockBg = if (isDark) CodeBlockBg else CodeBlockBgLight
     val inlineCodeBg = if (isDark) InlineCodeBg else InlineCodeBgLight
+    // contentColor 非空时（如蓝底白字气泡）覆盖全部文字颜色
+    val bodyColor = contentColor ?: MaterialTheme.colorScheme.onBackground
+    val bodyColor90 = contentColor ?: MaterialTheme.colorScheme.onBackground.copy(alpha = 0.9f)
+    val accentColor = contentColor ?: MaterialTheme.colorScheme.primary
     Column(modifier = modifier) {
         segments.forEach { segment ->
             when (segment) {
                 is MarkdownSegment.Text -> Text(text = segment.text, style = MaterialTheme.typography.bodyLarge,
-                    color = if (segment.isBold) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.9f),
+                    color = if (segment.isBold) bodyColor else bodyColor90,
                     fontWeight = if (segment.isBold) FontWeight.Bold else FontWeight.Normal)
                 is MarkdownSegment.Code -> {
                     Spacer(modifier = Modifier.height(4.dp))
-                    Surface(color = codeBlockBg, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth().border(0.5.dp, CodeBorder, RoundedCornerShape(8.dp))) {
+                    Surface(color = codeBlockBg, shape = CornerXS, modifier = Modifier.fillMaxWidth().border(0.5.dp, CodeBorder, CornerXS)) {
                         Box(modifier = Modifier.padding(12.dp)) {
-                            Text(text = segment.code, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp)
+                            Text(text = segment.code, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium, color = contentColor ?: MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp)
                         }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                 }
-                is MarkdownSegment.InlineCode -> Surface(color = inlineCodeBg, shape = RoundedCornerShape(4.dp)) {
-                    Text(text = segment.code, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                is MarkdownSegment.InlineCode -> Surface(color = inlineCodeBg, shape = CornerXS) {
+                    Text(text = segment.code, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium, color = accentColor, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                 }
-                is MarkdownSegment.Header -> Text(text = segment.text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                is MarkdownSegment.Header -> Text(text = segment.text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = accentColor)
                 is MarkdownSegment.ListItem -> Row {
-                    Text("  ${segment.bullet} ", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
-                    Text(segment.text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onBackground)
+                    Text("  ${segment.bullet} ", style = MaterialTheme.typography.bodyLarge, color = accentColor)
+                    Text(segment.text, style = MaterialTheme.typography.bodyLarge, color = bodyColor)
                 }
             }
         }

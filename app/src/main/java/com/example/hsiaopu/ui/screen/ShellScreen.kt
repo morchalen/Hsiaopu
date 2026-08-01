@@ -7,7 +7,6 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -42,6 +41,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.hsiaopu.system.ShellExecutor
+import com.example.hsiaopu.ui.theme.LocalIsDark
 import com.example.hsiaopu.system.ShellResult
 import com.example.hsiaopu.system.ShizukuHelper
 import com.example.hsiaopu.data.AppSettings
@@ -82,7 +82,7 @@ fun ShellScreen(
     val keyboardController = LocalSoftwareKeyboardController.current // 软键盘控制器
     val focusRequester = remember { FocusRequester() } // 输入框焦点请求
 
-    val isDark = isSystemInDarkTheme()
+    val isDark = LocalIsDark.current
     // 颜色全部来自主题 Color.kt，禁止硬编码
     val terminalBg = if (isDark) TerminalBgDark else TerminalBgLight
     val terminalText = if (isDark) TerminalTextDark else TerminalTextLight

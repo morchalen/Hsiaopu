@@ -42,8 +42,8 @@ val FunctionalYellowContainer = Color(0xFF3D3018)   // 深色模式黄色容器
 val FunctionalGreen = Color(0xFF5DA868)
 val FunctionalGreenContainer = Color(0xFF1A3320)     // 深色模式绿色容器
 
-// 蓝色 — 链接、选中态、主要操作（App 唯一主色调）
-val FunctionalBlue = Color(0xFF3964FE)            // 浅色/深色模式统一主色调
+// 蓝色 — 链接、选中态、主要操作（App 唯一主色调，iOS 系统蓝）
+val FunctionalBlue = Color(0xFF0A7BFF)            // 浅色模式主色（iOS 蓝）
 val FunctionalBlueLight = Color(0xFF6B8AFF)       // 深色模式（更亮，保证可读性）
 val FunctionalBlueContainer = Color(0xFF1A2240)   // 深色模式蓝色容器
 
@@ -76,13 +76,12 @@ val ErrorRed = FunctionalRed
 val SuccessGreen = FunctionalGreen
 val OnPrimary = White
 
-// ── 聊天气泡 ──
-// 用户气泡
-val UserBubbleLight = SystemGray2        // 浅色模式：浅灰背景
-val UserBubbleDark = Color(0xFF2A2A2A)   // 深色模式：深灰背景
-// 助手气泡
-val AssistantBubbleLight = SystemGray1   // 浅色模式：极浅灰背景（接近白）
-val AssistantBubbleDark = Color(0xFF141414) // 深色模式：深黑背景
+// ── 聊天气泡（iMessage 风格） ──
+// 用户气泡：iOS 蓝底 + 白字
+val UserBubbleBlue = Color(0xFF0A7BFF)
+// AI 气泡：iMessage 灰底（浅色 / 深色）
+val AssistantBubbleLight = SystemGray1   // 浅色模式：#F2F2F7 极浅灰
+val AssistantBubbleDark = Color(0xFF26262A) // 深色模式：iMessage 深灰
 
 // ── 代码块 ──
 val CodeBlockBg = Color(0xFF141414)                    // 代码块背景（深色模式）

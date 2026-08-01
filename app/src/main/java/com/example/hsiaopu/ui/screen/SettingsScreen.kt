@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +30,13 @@ fun SettingsScreen(viewModel: ChatViewModel) {
     var showAboutDialog by remember { mutableStateOf(false) }
     val shizukuAvailable = remember { mutableStateOf(ShizukuHelper.isAvailable()) }
     val systemDarkTheme = isSystemInDarkTheme()//isSystemInDarkTheme函数本身就是自动监听系统主题变化的，所以这里不需要mutableStateOf
+
+    // App 实际是否深色（跟随设置页主题开关，而非系统主题）
+    val isDarkNow = when (themeSettings.themeMode) {
+        "light" -> false
+        "dark" -> true
+        else -> systemDarkTheme
+    }
    
     LaunchedEffect(Unit) {
         shizukuAvailable.value = ShizukuHelper.isAvailable() && ShizukuHelper.hasPermission()
@@ -62,7 +70,9 @@ fun SettingsScreen(viewModel: ChatViewModel) {
                     containerColor = MaterialTheme.colorScheme.surface
                 )
             )
-        }
+        },
+        // iOS 分组列表背景：浅色=极浅灰，深色=深灰（与白色卡片形成分组层次）
+        containerColor = MaterialTheme.colorScheme.surfaceVariant
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -117,12 +127,12 @@ fun SettingsScreen(viewModel: ChatViewModel) {
                                 label = { Text(stringResource(R.string.settings_model), style = MaterialTheme.typography.bodySmall) },// 下拉菜单输入框的标签
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },// 下拉菜单输入框的尾随图标
                                 colors = OutlinedTextFieldDefaults.colors(// 下拉菜单输入框的颜色
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                    focusedBorderColor = Color.Transparent,
+                                    unfocusedBorderColor = Color.Transparent,
+                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                                 ),
-                                shape = RoundedCornerShape(12.dp),
+                                shape = CornerSM,
                                 modifier = Modifier.menuAnchor()
                             )
                             ExposedDropdownMenu(//下拉菜单
@@ -144,7 +154,7 @@ fun SettingsScreen(viewModel: ChatViewModel) {
                     Spacer(modifier = Modifier.width(8.dp))
                     OutlinedButton(//刷新模型列表按钮
                         onClick = { viewModel.refreshModels() },//点击刷新模型列表按钮时，调用viewModel.refreshModels函数，刷新模型列表
-                        shape = RoundedCornerShape(12.dp),
+                        shape = CornerSM,
                         modifier = Modifier.size(48.dp),
                         contentPadding = PaddingValues(0.dp)
                     ) {
@@ -186,35 +196,43 @@ fun SettingsScreen(viewModel: ChatViewModel) {
                             selected = themeSettings.themeMode == "system",//如果是系统跟随主题，选中
                             onClick = { viewModel.updateThemeMode("system") },
                             label = { Text(stringResource(R.string.settings_theme_system), style = MaterialTheme.typography.labelMedium) },
-                            leadingIcon = { Icon(Icons.Default.SettingsBrightness, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            leadingIcon = { Icon(Icons.Default.SettingsBrightness, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                selectedLabelColor = MaterialTheme.colorScheme.primary,
+                                selectedLeadingIconColor = MaterialTheme.colorScheme.primary
+                            )
                         )
                         //
                         FilterChip(
                             selected = themeSettings.themeMode != "system",
                             onClick = {
-                                if(systemDarkTheme){//onclick里面不属于@Composable区域，isSystemInDarkTheme只能用于@Composable区域调用，所以这里需要调用这个提前定义的参数systemDarkTheme=isSystemInDarkTheme()
+                                // 基于 App 实际主题切换：当前深色 → 切浅色；当前浅色 → 切深色
+                                if (isDarkNow) {
                                     viewModel.updateThemeMode("light")
-                                }
-                                else{
+                                } else {
                                     viewModel.updateThemeMode("dark")
                                 }
                             },
-                            label = {//如果现在是浅色主题，显示浅色文本，否则显示深色文本
-                                if(isSystemInDarkTheme()){//这里label和leadingIcon属于@Composable区域，所以不需要二次调用
+                            label = {//如果现在是深色主题，点击后将是浅色 → 显示"浅色模式"
+                                if (isDarkNow) {
                                     Text(stringResource(R.string.settings_theme_light), style = MaterialTheme.typography.labelMedium)
-                                }
-                                else{
+                                } else {
                                     Text(stringResource(R.string.settings_theme_dark), style = MaterialTheme.typography.labelMedium)
                                 }
                             },
                             leadingIcon = {
-                                if(isSystemInDarkTheme()){
+                                if (isDarkNow) {
                                     Icon(Icons.Default.LightMode, contentDescription = null, modifier = Modifier.size(16.dp))
-                                }
-                                else{
+                                } else {
                                     Icon(Icons.Default.DarkMode, contentDescription = null, modifier = Modifier.size(16.dp))
                                 }
-                            }
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                selectedLabelColor = MaterialTheme.colorScheme.primary,
+                                selectedLeadingIconColor = MaterialTheme.colorScheme.primary
+                            )
                         )
 
                     }
@@ -279,13 +297,17 @@ fun SettingsScreen(viewModel: ChatViewModel) {
 
 // ── 可复用设置组件 ──
 
-//卡片
+//卡片（iOS 分组风格：白底、无阴影、统一圆角）
 @Composable
 private fun SettingsCard(title: String, content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(16.dp)
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
+        shape = CornerSM,
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
@@ -296,7 +318,7 @@ private fun SettingsCard(title: String, content: @Composable ColumnScope.() -> U
     }
 }
 
-//输入框
+//输入框（iOS 风格：无边框、灰底填充、统一圆角）
 @Composable
 private fun SettingsTextField(label: String, value: String, minLines: Int = 1, onValueChange: (String) -> Unit) {
     OutlinedTextField(//自带清晰边框的输入框
@@ -306,12 +328,12 @@ private fun SettingsTextField(label: String, value: String, minLines: Int = 1, o
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         singleLine = minLines == 1,
         minLines = minLines,
-        shape = RoundedCornerShape(12.dp),
+        shape = CornerSM,
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            focusedBorderColor = Color.Transparent,
+            unfocusedBorderColor = Color.Transparent,
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
         ),
         textStyle = MaterialTheme.typography.bodyMedium
     )
