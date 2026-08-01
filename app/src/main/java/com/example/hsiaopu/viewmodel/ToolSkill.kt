@@ -38,24 +38,14 @@ object ToolSkillRegistry {
         ToolSkill(
             name = "设备命令",
             marker = "[SHELL:",
-            description = "执行 Shell 命令控制设备，如开关 WiFi/蓝牙、查电量、调音量、重启等。参数为完整 Shell 命令。"
-        ),
-        ToolSkill(
-            name = "结构化系统 Skill",
-            marker = "[SKILL:",
-            description = "调用已经封装好的 Android 系统能力，格式为 [SKILL:skill_name:{JSON参数}]。支持 get_battery_info、get_memory_info、set_volume、set_brightness、open_settings。"
+            description = "根据用户的指令输出一条完整的 Android 设备 shell 命令（命令由你根据自己的经验写出，系统会在设备 shell 中直接执行，不会替你想命令），系统会真实执行并把执行结果交给你。"
         )
-        // 示例：加"打开应用"技能只需加一行
-        // ToolSkill(
-        //     name = "打开应用",
-        //     marker = "[APP:",
-        //     description = "启动指定的应用，参数为应用名称，如 微信/设置/相机"
-        // )
     )
 
-    /** ② 描述注入：从注册表动态生成工具说明，拼入 System Prompt */
+    /** ② 描述注入：从注册表动态生成工具说明，拼入 System Prompt。
+     * 注意：这里只描述机制，严禁列举具体命令或指令示例——具体命令必须由 AI 凭自身经验写出。 */
     fun buildToolPrompt(): String = buildString {
-        appendLine("你是一个运行在 Android 设备上的 AI 助手，你可以通过以下技能控制设备：")
+        appendLine("你是一个运行在 Android 设备上的 AI 助手，你可以通过调用系统命令来操作或查询设备。")
         appendLine()
         skills.forEachIndexed { index, skill ->
             appendLine("技能${index + 1}【${skill.name}】：${skill.description}")
@@ -63,21 +53,13 @@ object ToolSkillRegistry {
             appendLine()
         }
         appendLine("规则：")
-        appendLine("1. 当用户要求操作设备时，先输出技能调用标记，系统会真实执行，然后根据执行结果回复用户")
-        appendLine("2. 查询类操作直接输出调用标记获取结果即可")
-        appendLine("3. 危险操作（重启、关机等）需要先向用户确认")
-        appendLine("4. 如果你不确定具体的调用方式，告诉用户暂不支持")
-        appendLine("5. 严禁编造执行结果：你无法自行执行，只有输出调用标记后系统才会真正执行；未输出标记时绝对不要声称\"已执行\"，也不要编造命令输出或执行结果")
-        appendLine("6. 若命令执行失败或无返回输出，如实报告错误，不要假装成功")
-        appendLine("7. 用中文回复用户")
-        appendLine("8. 优先使用结构化系统 Skill；只有没有合适 Skill 时，才使用 Shell 命令")
-        appendLine()
-        appendLine("结构化 Skill 示例：")
-        appendLine("- 查询电池：[SKILL:get_battery_info:{}]")
-        appendLine("- 查询内存：[SKILL:get_memory_info:{}]")
-        appendLine("- 设置媒体音量：[SKILL:set_volume:{\"stream\":\"music\",\"level\":5}]")
-        appendLine("- 设置亮度：[SKILL:set_brightness:{\"level\":120}]")
-        appendLine("- 打开系统设置：[SKILL:open_settings:{}]")
+        appendLine("1. 当用户要求操作或查询设备时，你的第一轮回复必须只包含 [SHELL:命令]，不要写任何总结、确认、客套或其他文字；系统执行完并返回真实结果后，你才能在后续回复中总结汇报")
+        appendLine("2. 命令必须由你根据用户需求自行写出（凭你的经验写正确的设备 shell 命令。注意：命令是直接要在设备 shell 里执行的，设备上没有 adb 这个命令，所以千万不要写 adb shell 前缀），不要虚构不存在的命令")
+        appendLine("3. 系统执行后会返回真实结果给你，你必须如实汇报执行结果，严禁编造\"已成功\"\"已完成\"等结论")
+        appendLine("4. 若系统提示命令执行失败，如实说明失败原因")
+        appendLine("5. 危险操作（重启、关机、恢复出厂设置等）需要先向用户确认")
+        appendLine("6. 用中文回复用户")
+        appendLine("7. 严禁在回复中输出 \"✓\"\"✗\"\"⚠️\" 开头的文本，或\"执行成功，返回：\"这类系统结果格式——那是系统执行并核实后才会生成的内容，你的第一轮回复只允许出现 [SHELL:命令]，其余一律用中文表达")
     }
 
     /**

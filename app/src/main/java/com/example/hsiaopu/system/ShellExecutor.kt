@@ -95,14 +95,9 @@ object ShellExecutor {
                 )
             }
 
-            // 使用统一的 ShizukuHelper.exec()，绕过 Shizuku 13+ 的 @RestrictTo 限制
-            val stdout = ShizukuHelper.exec(command)// shell 进程中执行 sh -c '命令'[shell -command ]：启动一个新的 shell 进程，并执行 -c 后面跟着的那条命令。
-            return@withContext ShellResult(
-                command = command,
-                stdout = stdout,        // ✅ 动态获取的
-                stderr = "",            // 没有错误，就是空
-                exitCode = 0            // 0 表示成功
-            )//我只退出 withContext 这个代码块，并把后面的值作为 withContext 的执行结果返回出去。
+            // 使用统一的 ShizukuHelper.exec()，绕过 Shizuku 13+ 的 @RestrictTo 限制；
+            // 返回结果已含真实 stdout / stderr / 退出码（exitCode≠0 表示命令失败）
+            return@withContext ShizukuHelper.exec(command)
         } catch (e: Exception) {
             return@withContext ShellResult(
                 command = command,

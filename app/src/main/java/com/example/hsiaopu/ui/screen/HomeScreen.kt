@@ -403,6 +403,26 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
                             Icon(Icons.Default.Add, contentDescription = "新建对话框", modifier = Modifier.size(22.dp))
                         }
                     }
+
+                    // 分享按钮：复制当前对话全部内容到剪贴板（含调试流程块，方便排查）
+                    IconButton(
+                        onClick = {
+                            val text = uiState.messages.joinToString("\n\n") { msg ->
+                                val who = if (msg.role == "user") "我" else "AI"
+                                "$who：\n${msg.content}"
+                            }
+                            if (text.isBlank()) {
+                                Toast.makeText(context, "当前对话为空", Toast.LENGTH_SHORT).show()
+                            } else {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("对话内容", text))
+                                Toast.makeText(context, "已复制当前对话到剪贴板", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        enabled = uiState.messages.isNotEmpty()
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = "分享对话", modifier = Modifier.size(22.dp))
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface

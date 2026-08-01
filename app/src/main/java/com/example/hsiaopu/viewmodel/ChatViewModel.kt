@@ -15,12 +15,12 @@ import com.example.hsiaopu.data.repository.ChatRepository
 import com.example.hsiaopu.data.repository.ShellHistoryRepository
 import com.example.hsiaopu.network.ChatClient
 import com.example.hsiaopu.system.ShellExecutor
+import com.example.hsiaopu.system.ShellResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
-import org.json.JSONObject
 import javax.inject.Inject
 
 //负责管理聊天会话、消息收发、AI 服务提供商调度以及工具指令执行的核心 ViewModel。
@@ -261,16 +261,43 @@ class ChatViewModel @Inject constructor(
                 val fullContent = chatClient.sendMessageSafe(messages, settings)
 
                 // 3. 解析并执行工具指令
-                val (processedContent, toolResults) = executeToolsInContent(fullContent)
+                var firstReply = fullContent
+                var processedContent: String
+                var toolResults: List<SkillResult>
+                val firstParsed = executeToolsInContent(firstReply)
+                processedContent = firstParsed.first
+                toolResults = firstParsed.second
+
+                // 无命令标记，但内容像是"编造/模仿执行结果"（✓✗⚠️ 系统专用符号、或未执行就下"已成功/已关闭"等结论）→ 纠错重试一次
+                if (toolResults.isEmpty() && looksLikeFabricatedResult(firstReply)) {
+                    val retryPrompt = systemPrompt +
+                        "\n\n纠正：你上一次回复没有输出 [SHELL:] 调用标记，而是直接写了总结性话语（如\"已成功\"\"已关闭\"）。请重新回复：如果用户要求操作或查询设备，你的回复必须只包含 [SHELL:命令]，严禁输出任何总结、确认语，也严禁输出 ✓ ✗ ⚠️ 开头的文本；如果确实不需要执行命令，请直接用中文正常回答。"
+                    val retryMessages = buildList {
+                        add(ChatMessage(role = "system", content = retryPrompt))
+                        addAll(messages.drop(1))
+                    }
+                    firstReply = chatClient.sendMessageSafe(retryMessages, settings)
+                    val retryParsed = executeToolsInContent(firstReply)
+                    processedContent = retryParsed.first
+                    toolResults = retryParsed.second
+                }
 
                 val finalContent: String
                 if (toolResults.isNotEmpty()) {
-                    // ===== 场景B：有命令执行 → 必须核实系统返回值 =====
-                    val (summary, toolResultText) = summarizeToolResults(messages, processedContent, toolResults, settings)
-                    val reply = if (summary.isNotBlank()) summary else toolResultText
+                    // ===== 有命令执行 → 把系统真实执行结果交给 AI 总结 =====
+                    val (summary, toolResultText) = summarizeToolResults(messages, toolResults, settings)
+                    // 只要有任何"执行失败"或"无法核实"的结果，正式回复直接采用已核实的真实结果文本，
+                    // 防止 AI 在总结阶段把失败/未知编造成"已成功"
+                    val hasUnverifiedResult = toolResults.any {
+                        !it.success || it.output.isBlank() || it.output.contains("无法读取")
+                    }
+                    val reply = if (hasUnverifiedResult) toolResultText
+                        else if (summary.isNotBlank()) summary
+                        // 总结为空时的兜底：直接展示已核实的真实输出，避免把 ✓ 结果块存进历史让 AI 模仿
+                        else "系统已执行命令，真实输出：\n" + toolResults.joinToString("\n") { it.output.trim() }
                     val flowBody = buildString {
                         appendLine("① 第一轮 AI 回复（含命令标记）：")
-                        appendLine(fullContent.trim())
+                        appendLine(firstReply.trim())
                         appendLine()
                         appendLine("② 系统命令执行结果（已核实）：")
                         appendLine(toolResultText.trim())
@@ -281,66 +308,13 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                     finalContent = wrapDebugFlow(reply, flowBody)
-                } else if (detectHallucinatedExecution(fullContent)) {
-                    // ===== 场景A-2：AI 声称执行了命令但没有 [SHELL:] 标记（幻觉）→ 纠正 =====
-                    val hallucinationMessages = messages + listOf(
-                        ChatMessage(role = "assistant", content = fullContent),
-                        ChatMessage(role = "user", content = "系统检测到你提到了命令执行，但没有输出 [SHELL:命令] 标记。本应用只能通过 [SHELL:xxx] 标记真实执行命令。若确实需要执行命令，请重新回复并包含正确的 [SHELL:xxx] 标记；若无需执行命令，请删除编造的执行描述，直接给出答案。")
-                    )
-                    var correctedContent = ""
-                    try {
-                        correctedContent = chatClient.sendMessageSafe(hallucinationMessages, settings)
-                    } catch (_: Exception) { }
-
-                    // 纠正后 AI 可能输出了 [SHELL:] 标记 → 必须再次解析执行，防止命令未执行
-                    val (processedCorrected, correctedToolResults) = executeToolsInContent(correctedContent)
-
-                    val reply: String
-                    val flowBody: String
-                    if (correctedToolResults.isNotEmpty()) {
-                        // 纠正后输出了命令标记 → 执行并二次总结
-                        val (correctedSummary, correctedToolResultText) =
-                            summarizeToolResults(messages, processedCorrected, correctedToolResults, settings)
-                        reply = if (correctedSummary.isNotBlank()) correctedSummary else correctedToolResultText
-                        flowBody = buildString {
-                            appendLine("① 第一轮 AI 回复（声称执行命令但无 [SHELL:] 标记，疑似幻觉）：")
-                            appendLine(fullContent.trim())
-                            appendLine()
-                            appendLine("⚠️ 幻觉检测：AI 声称执行了命令但未输出 [SHELL:xxx] 标记，系统未执行任何命令")
-                            appendLine()
-                            appendLine("② 纠正后 AI 输出的命令：")
-                            appendLine(processedCorrected.trim())
-                            appendLine()
-                            appendLine("③ 系统命令执行结果（已核实）：")
-                            appendLine(correctedToolResultText.trim())
-                            if (correctedSummary.isNotBlank()) {
-                                appendLine()
-                                appendLine("④ 最终总结汇报：")
-                                appendLine(correctedSummary.trim())
-                            }
-                        }
-                    } else {
-                        reply = if (correctedContent.isNotBlank()) correctedContent else fullContent
-                        flowBody = buildString {
-                            appendLine("① 第一轮 AI 回复（声称执行命令但无 [SHELL:] 标记，疑似幻觉）：")
-                            appendLine(fullContent.trim())
-                            appendLine()
-                            appendLine("⚠️ 幻觉检测：AI 声称执行了命令但未输出 [SHELL:xxx] 标记，系统未执行任何命令")
-                            if (correctedContent.isNotBlank() && correctedContent != fullContent) {
-                                appendLine()
-                                appendLine("② 纠正请求后 AI 回复：")
-                                appendLine(correctedContent.trim())
-                            }
-                        }
-                    }
-                    finalContent = wrapDebugFlow(reply, flowBody)
                 } else {
-                    // ===== 场景A-1：无命令 → 一次性直接回复，不发起第二次请求 =====
+                    // ===== 无命令执行 → 直接返回 AI 原文，不再让 AI 总结 =====
                     val flowBody = buildString {
                         appendLine("① 第一轮 AI 回复：")
-                        appendLine(fullContent.trim())
+                        appendLine(firstReply.trim())
                         appendLine()
-                        appendLine("ℹ️ 未检测到 [SHELL:] 命令标记，系统未执行任何命令")
+                        appendLine("ℹ️ 未检测到命令标记，系统未执行任何命令")
                     }
                     finalContent = wrapDebugFlow(processedContent, flowBody)
                 }
@@ -388,19 +362,15 @@ class ChatViewModel @Inject constructor(
         return if (userPrompt.isNotBlank()) "$userPrompt\n\n$tools" else tools
     }
 
-    /**
-     * 检测 AI 是否"声称执行了命令"但没有输出 [SHELL:xxx] 标记（AI 幻觉）。
-     * 有标记时交由正常执行流程处理；无标记但声称执行 → 判定为幻觉，需二次纠正。
-     */
-    private fun detectHallucinatedExecution(content: String): Boolean {
-        val hasMarkers = Regex("""\[SHELL:[^\]]+\]""").containsMatchIn(content)
-        if (hasMarkers) return false
-        val claims = listOf(
-            "已执行命令", "执行了命令", "命令已执行", "命令执行成功", "命令执行失败",
-            "我执行了", "已经执行", "执行完成", "命令返回", "执行结果", "命令输出",
-            "运行结果", "已运行", "执行成功", "执行失败"
-        )
-        return claims.any { content.contains(it) }
+    /** 判断 AI 首轮回复是否在"编造/模仿执行结果"：
+     * - ✓/✗/⚠️ 是系统专用的已核实结果符号，AI 不应输出；
+     * - "已成功/执行成功/已关闭/已开启/已打开/已完成/已连接/已断开"等动作结论，在第一轮尚未执行前不应出现。
+     * 命中则视为 AI 未按"第一轮只输出命令"的规则执行，需要纠错重试。 */
+    private fun looksLikeFabricatedResult(text: String): Boolean {
+        val t = text.trim()
+        if (t.isEmpty()) return false
+        return t.contains("✓") || t.contains("✗") || t.contains("⚠️") ||
+            Regex("(已成功|执行成功|已关闭|已开启|已打开|已完成|已连接|已断开)").containsMatchIn(t)
     }
 
     /** 调试流程块的开始/结束标记，UI 端据此渲染灰色小字 */
@@ -471,14 +441,17 @@ class ChatViewModel @Inject constructor(
      */
     private suspend fun summarizeToolResults(
         messages: List<ChatMessage>,
-        processedContent: String,
         toolResults: List<SkillResult>,
         settings: AppSettings
     ): Pair<String, String> {
         val toolResultText = buildToolResultText(toolResults)
+        // 关键：把已核实的真实执行结果作为"用户级权威消息"传给 AI 总结。
+        // 不能放进 assistant 消息里——否则 AI 会以为那是它自己说过的话，反而"无法验证"而不敢采信。
         val secondMessages = messages + listOf(
-            ChatMessage(role = "assistant", content = processedContent),
-            ChatMessage(role = "user", content = SUMMARY_PROMPT)
+            ChatMessage(
+                role = "user",
+                content = "【系统命令执行结果】（这是系统通过 Shizuku 在设备上真实执行 shell 命令后返回的原始输出，已核实真实可信，请直接采信，不要怀疑其真实性，也不要要求再次提供）\n$toolResultText\n\n$SUMMARY_PROMPT"
+            )
         )
         var summary = ""
         try {
@@ -494,65 +467,11 @@ class ChatViewModel @Inject constructor(
      * 执行器由本类提供（依赖 Shell/历史库等业务组件），标记格式与替换逻辑由注册表统一管理。
      */
     private suspend fun executeToolsInContent(content: String): Pair<String, List<SkillResult>> {
-        return ToolSkillRegistry.executeAll(content) { skill, param ->
-            when (skill.marker) {
-                "[SHELL:" -> executeToolAction(param)
-                "[SKILL:" -> executeStructuredSkill(param)
-                else -> SkillResult(skill.name, false, "暂不支持的 Skill: ${skill.marker}", "")
-            }
+        return ToolSkillRegistry.executeAll(content) { _, param ->
+            executeToolAction(param)
         }
     }
 
-    /**
-     * 结构化 Skill 执行器。
-     * 格式：[SKILL:skill_name:{JSON参数}]
-     * 这比让 AI 直接写 Shell 更接近手机厂商内部的 Skill 封装：名称稳定、参数可校验、执行命令可控。
-     */
-    private suspend fun executeStructuredSkill(rawParam: String): SkillResult {
-        val separatorIndex = rawParam.indexOf(':')
-        if (separatorIndex <= 0) {
-            return SkillResult(rawParam, false, "Skill 格式错误，应为 skill_name:{JSON参数}", "")
-        }
-
-        val skillName = rawParam.substring(0, separatorIndex).trim()
-        val jsonText = rawParam.substring(separatorIndex + 1).trim().ifBlank { "{}" }
-        val params = try {
-            JSONObject(jsonText)
-        } catch (e: Exception) {
-            return SkillResult(skillName, false, "JSON 参数解析失败: ${e.message}", "")
-        }
-
-        val shellCommand = when (skillName) {
-            "get_battery_info" -> "dumpsys battery"
-            "get_memory_info" -> "cat /proc/meminfo | head -20"
-            "open_settings" -> "am start -a android.settings.SETTINGS"
-            "set_volume" -> buildSetVolumeCommand(params)
-            "set_brightness" -> buildSetBrightnessCommand(params)
-            else -> null
-        } ?: return SkillResult(skillName, false, "未知或参数非法的 Skill: $skillName", "")
-
-        val result = executeToolAction(shellCommand)
-        return result.copy(action = "$skillName -> $shellCommand")
-    }
-
-    private fun buildSetVolumeCommand(params: JSONObject): String? {
-        val streamName = params.optString("stream", "music")
-        val streamCode = when (streamName) {
-            "ring" -> 2
-            "music" -> 3
-            "alarm" -> 4
-            "notification" -> 5
-            else -> return null
-        }
-        val level = params.optInt("level", -1).takeIf { it in 0..15 } ?: return null
-        return "media volume --stream $streamCode --set $level"
-    }
-
-    private fun buildSetBrightnessCommand(params: JSONObject): String? {
-        val level = params.optInt("level", -1).takeIf { it in 1..255 } ?: return null
-        return "settings put system screen_brightness $level"
-    }
-    
     // [暂不用] 解析 shell 工具指令参数（当前使用 [SHELL:原始命令] 格式，无需解析参数）
     // private fun parseParams(paramsStr: String): Map<String, String> {
     //     if (paramsStr.isBlank()) return emptyMap()
@@ -573,25 +492,56 @@ class ChatViewModel @Inject constructor(
     //     }
     // }
 
-    // 本地执行 shell 命令，同时将结果写入 ShellHistory 数据库供 Shell 页面显示
+    // 本地执行 shell 命令，同时将结果写入 ShellHistory 数据库供 Shell 页面显示。
+    // 对开关蓝牙/WiFi 这类无输出的命令，系统侧自动回读真实状态并入结果，让 AI 能如实总结。
     private suspend fun executeToolAction(shellCommand: String): SkillResult {
         return try {
             val shellResult = kotlinx.coroutines.withTimeout(30000) {
                 ShellExecutor.execute(shellCommand).first()
             }
+            val verified = verifyToggleState(shellCommand, shellResult)
             // 写入 ShellHistory 数据库，Shell 页面从 Room Flow 读取后自动显示
-            shellHistoryRepository.insertHistory(shellResult)
+            shellHistoryRepository.insertHistory(verified)
             SkillResult(
-                shellCommand,
-                shellResult.isSuccess,
-                shellResult.stdout.ifEmpty { shellResult.stderr },
-                shellResult.stdout
+                verified.command,
+                verified.isSuccess,
+                verified.stdout.ifEmpty { verified.stderr },
+                verified.stdout
             )
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
             SkillResult(shellCommand, false, "Shell 执行超时", "")
         } catch (e: Exception) {
             SkillResult(shellCommand, false, "Shell 执行失败: ${e.message}", "")
         }
+    }
+
+    /** 系统侧核实：对开关蓝牙/WiFi 的命令自动回读系统真实状态，追加到结果中（0=关，1=开）。
+     * 判断只看命令里是否含"蓝牙/WiFi 关键词 + 开关动作词"，兼容 AI 写出的各种写法（如 adb shell svc bluetooth disable 等）。 */
+    private suspend fun verifyToggleState(originalCommand: String, result: ShellResult): ShellResult {
+        val cmd = originalCommand.lowercase()
+        val isBluetooth = "bluetooth" in cmd && ("enable" in cmd || "disable" in cmd || " put " in cmd)
+        val isWifi = "wifi" in cmd && ("enable" in cmd || "disable" in cmd || " put " in cmd)
+        if (!isBluetooth && !isWifi) return result
+        // 开关命令本身失败就不再核实
+        if (!result.isSuccess) return result
+
+        val label = if (isBluetooth) "bluetooth_on" else "wifi_on"
+        // 先读系统设置值（0/1）；读不到时回退读系统服务状态作为参考
+        val settingValue = ShellExecutor.execute("sleep 2; settings get global $label").first().stdout.trim()
+        val stateText = if (settingValue.isNotBlank()) {
+            "$label=$settingValue"
+        } else {
+            val fallback = if (isBluetooth) {
+                ShellExecutor.execute("dumpsys bluetooth_manager 2>/dev/null | grep -iE \"state|enabled\" | head -3").first().stdout.trim()
+            } else {
+                ShellExecutor.execute("dumpsys wifi 2>/dev/null | grep -iE \"Wi-Fi is|mWifiEnabled\" | head -3").first().stdout.trim()
+            }
+            if (fallback.isNotBlank()) "状态回读：$fallback" else "无法读取 $label 状态"
+        }
+        return result.copy(
+            command = originalCommand,
+            stdout = if (result.stdout.isNotBlank()) "${result.stdout}\n$stateText" else stateText
+        )
     }
 
     // 清除错误信息

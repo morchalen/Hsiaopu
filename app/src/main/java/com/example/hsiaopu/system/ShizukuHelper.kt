@@ -86,22 +86,21 @@ object ShizukuHelper {
     }
 
     /**
-     * 通过 Shizuku 执行 shell 命令，返回标准输出（stdout）
+     * 通过 Shizuku 执行 shell 命令，返回完整执行结果（stdout / stderr / 退出码）
      *
      * 执行流程：
      * 1. 检查 Shizuku 是否可用且已授权
      * 2. 通过反射调用 Shizuku.newProcess()，启动一个 shell 进程执行命令
-     * 3. 逐行读取命令输出
-     * 4. 等待进程结束，释放资源
+     * 3. 逐行读取命令输出（stdout），同时用后台线程读取 stderr
+     * 4. 等待进程结束，获取真实退出码，释放资源
      *
      * @param command 要执行的 shell 命令，例如 "settings put global bluetooth_on 1"
-     * @return 命令的标准输出字符串
-     * @throws IllegalStateException 当 Shizuku 不可用或未授权时抛出
+     * @return ShellResult（含 stdout、stderr、exitCode；exitCode=0 表示成功，非 0 表示失败）
      */
-    fun exec(command: String): String {
+    fun exec(command: String): ShellResult {
         // ===== 前置校验：服务必须可用且已授权 =====
         if (!isAvailable() || !hasPermission()) {
-            throw IllegalStateException("Shizuku 不可用或未授予权限")
+            return ShellResult(command, "", "Shizuku 不可用或未授予权限", 127)
         }
 
         // ===== 组装命令：sh -c 'command' =====
@@ -110,38 +109,47 @@ object ShizukuHelper {
         val args = arrayOf("sh", "-c", command)
 
         // ===== 通过反射调用 Shizuku.newProcess() =====
-        // .invoke(null, args, null, null) 参数说明：
-        //   - 第1个 null：静态方法不需要实例
-        //   - 第2个 args：命令数组
-        //   - 第3个 null：环境变量（不需要）
-        //   - 第4个 null：工作目录（不需要）
-        // as Process：把反射返回的 Any? 强转为 Process 对象
         val process = newProcessMethod.invoke(null, args, null, null) as Process
-        //调用之前反射获取到的 newProcessMethod 这个方法，传给它 4 个参数，然后把返回值强制转换成 Process 类型。
 
-        // ===== 读取命令输出 =====
-        val output = StringBuilder()    // 可变字符串容器，追加、插入、删除、替换字符【比string性能好，因为string是不断的拷贝，这个是直接原地操作】
+        val stdout = StringBuilder()    // 标准输出容器
+        val stderr = StringBuilder()    // 标准错误容器
 
-        try {//逐行读取输出内容
-            // process.inputStream          → 进程的标准输出流（stdout）
-            // InputStreamReader           → 字节流 → 字符流
-            // BufferedReader              → 加缓冲区，支持按行读取【在内存里开一个“缓冲区”，批量读取数据，而不是一个字一个字地去读。】
-            // .use { }                    → 自动关闭流，防止内存泄漏【无论执行成功还是抛出异常，都会在最后自动调用 .close() 关闭资源】
+        // 后台线程读取 stderr，防止管道缓冲区写满导致主线程读 stdout 时死锁
+        val stderrThread = Thread {
+            try {
+                BufferedReader(InputStreamReader(process.errorStream)).use { reader ->
+                    var line: String? = reader.readLine()
+                    while (line != null) {
+                        stderr.appendLine(line)
+                        line = reader.readLine()
+                    }
+                }
+            } catch (_: Exception) {
+                // 读取 stderr 失败不影响主流程
+            }
+        }.apply { start() }
+
+        try {
+            // 逐行读取标准输出
             BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
-                var line: String? = reader.readLine()   // 读第一行
-                while (line != null) {                  // 读到末尾（null）时退出
-                    output.appendLine(line)             // 把这一行追加到 output
-                    line = reader.readLine()            // 读下一行
+                var line: String? = reader.readLine()
+                while (line != null) {
+                    stdout.appendLine(line)
+                    line = reader.readLine()
                 }
             }
-            // 等待进程完全执行完毕，有可能进程会有结束之后自动干一些事情的情况，获取退出码（这里不关心退出码，但必须 waitFor）
-            // waitFor() 会阻塞当前线程，直到进程终止
-            process.waitFor()
+            // 等 stderr 线程读完，再等进程结束拿真实退出码（0=成功，非0=失败）
+            stderrThread.join()
+            val exitCode = process.waitFor()
+            return ShellResult(
+                command = command,
+                stdout = stdout.toString().trim(),
+                stderr = stderr.toString().trim(),
+                exitCode = exitCode
+            )
         } finally {
             // 释放进程占用的资源，无论成功还是异常都会执行
             process.destroy()
         }
-        // trim() 去掉首尾多余的空白/换行，返回干净的字符串
-        return output.toString().trim()
     }
 }
