@@ -40,6 +40,12 @@ class TtsManager(context: Context) {
     /** TTS 未就绪时的 speakQueued() 待处理列表（追加到队列） */
     private val pendingQueueItems = mutableListOf<Pair<String, String>>()
 
+    /** 首次真正朗读前是否需要预热（引擎首次朗读易无声；stop() 后也可能触发） */
+    private var needsPrime = true
+
+    /** utteranceId → 朗读文本，用于 onStart/onDone 时严格打印实际朗读的内容，定位"第一次朗读没声音"问题 */
+    private val utteranceTexts = mutableMapOf<String, String>()
+
     /**
      * 已知的 OEM TTS 引擎包名列表，用于默认引擎初始化失败时逐个尝试。
      */
@@ -167,23 +173,25 @@ class TtsManager(context: Context) {
         tts?.setPitch(1.0f)
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
-                // 预热朗读不改变播放状态，避免 UI 误显示"正在播放"却无声
-                if (utteranceId == "tts_warmup") return
-                Log.d(TAG, "TTS 开始朗读: $utteranceId")
+                // 预热/启动前发音不改变播放状态，避免 UI 误显示"正在播放"却无声
+                if (utteranceId == "tts_warmup" || utteranceId == "tts_prime") return
+                Log.d(TAG, "TTS 开始朗读: $utteranceId, 内容=${utteranceTexts[utteranceId] ?: "未知"}")
                 isSpeaking = true
                 onSpeakingStateChanged?.invoke(true)
             }
 
             override fun onDone(utteranceId: String?) {
-                if (utteranceId == "tts_warmup") return
-                Log.d(TAG, "TTS 朗读结束: $utteranceId")
+                if (utteranceId == "tts_warmup" || utteranceId == "tts_prime") return
+                Log.d(TAG, "TTS 朗读结束: $utteranceId, 内容=${utteranceTexts[utteranceId] ?: "未知"}")
+                utteranceTexts.remove(utteranceId)
                 isSpeaking = false
                 onSpeakingStateChanged?.invoke(false)
             }
 
             override fun onError(utteranceId: String?) {
-                if (utteranceId == "tts_warmup") return
-                Log.e(TAG, "TTS 朗读出错: $utteranceId")
+                if (utteranceId == "tts_warmup" || utteranceId == "tts_prime") return
+                Log.e(TAG, "TTS 朗读出错: $utteranceId, 内容=${utteranceTexts[utteranceId] ?: "未知"}")
+                utteranceTexts.remove(utteranceId)
                 isSpeaking = false
                 onSpeakingStateChanged?.invoke(false)
             }
@@ -226,16 +234,39 @@ class TtsManager(context: Context) {
         pendingCallback?.invoke()
     }
 
-    /** 对 TTS 引擎做一个静默预热，解决首次无声问题 */
+    /** 对 TTS 引擎做一个静默预热，解决首次无声问题（初始化时调用一次） */
     private fun warmupTts() {
         try {
+            // 音量用 0.02 而非 0：部分引擎会直接丢弃"音量0"的发音，导致预热无效
             val warmupParams = Bundle().apply {
-                putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0f)
+                putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0.02f)
             }
-            tts?.speak(" ", TextToSpeech.QUEUE_FLUSH, warmupParams, "tts_warmup")
+            tts?.speak("。", TextToSpeech.QUEUE_FLUSH, warmupParams, "tts_warmup")
+            utteranceTexts["tts_warmup"] = "。（初始化预热）"
             Log.d(TAG, "预热 speak 完成")
         } catch (e: Exception) {
             Log.w(TAG, "预热失败", e)
+        }
+    }
+
+    /**
+     * 首次真正朗读前立即预热。
+     * 初始化时的预热与首次朗读间隔太久，引擎音频管道可能已空闲，
+     * 部分引擎（如 OPPO）"空闲后第一次朗读"仍会无声。在真正朗读前一刻再发一个
+     * 近静音发音，确保引擎管道被激活。
+     */
+    private fun primeTtsIfNeeded() {
+        if (!needsPrime) return
+        needsPrime = false
+        try {
+            val primeParams = Bundle().apply {
+                putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0.02f)
+            }
+            tts?.speak("。", TextToSpeech.QUEUE_FLUSH, primeParams, "tts_prime")
+            utteranceTexts["tts_prime"] = "。（首次朗读前近静音预热）"
+            Log.d(TAG, "首次朗读前预热（近静音）已发送")
+        } catch (e: Exception) {
+            Log.w(TAG, "首次朗读前预热失败", e)
         }
     }
 
@@ -263,11 +294,15 @@ class TtsManager(context: Context) {
             Log.e(TAG, "TTS 引擎为空，无法朗读")
             return
         }
+        primeTtsIfNeeded()
         Log.d(TAG, "朗读文本: ${text.take(50)}...")
+        Log.d(TAG, "朗读文本(全文,严格打印): >>>$text<<<")
 
+        val utteranceId = "tts_utterance_${System.currentTimeMillis()}"
+        utteranceTexts[utteranceId] = text
         val params = Bundle()
-        val result = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "tts_utterance")
-        Log.d(TAG, "speak() 返回值: $result")
+        val result = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+        Log.d(TAG, "speak() 返回值: $result, utteranceId=$utteranceId")
         if (result == TextToSpeech.ERROR) {
             Log.e(TAG, "speak() 返回 ERROR")
         }
@@ -299,9 +334,12 @@ class TtsManager(context: Context) {
             Log.e(TAG, "TTS 引擎为空，无法朗读")
             return
         }
+        primeTtsIfNeeded()
+        Log.d(TAG, "排队朗读(全文,严格打印): >>>$text<<<")
+        utteranceTexts[utteranceId] = text
         val params = Bundle()
         val result = tts?.speak(text, TextToSpeech.QUEUE_ADD, params, utteranceId)
-        Log.d(TAG, "speakQueued(${text.take(30)}...) 返回值: $result")
+        Log.d(TAG, "speakQueued(${text.take(30)}...) 返回值: $result, utteranceId=$utteranceId")
     }
 
     /** 停止当前朗读 */
@@ -309,6 +347,7 @@ class TtsManager(context: Context) {
         // 清理所有待处理的播放请求
         pendingSpeakTexts.clear()
         pendingQueueItems.clear()
+        utteranceTexts.clear()
         onInitCallback = null
 
         if (!isInitialized) {
@@ -317,6 +356,8 @@ class TtsManager(context: Context) {
         Log.d(TAG, "停止 TTS 朗读")
         tts?.stop()
         isSpeaking = false
+        // 部分引擎 stop() 后的第一次朗读也会无声，重新武装预热
+        needsPrime = true
         onSpeakingStateChanged?.invoke(false)
     }
 

@@ -3,6 +3,7 @@ package com.example.hsiaopu.viewmodel
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.hsiaopu.data.AppSettings
@@ -146,10 +147,6 @@ class ChatViewModel @Inject constructor(
         _settings.update { it.copy(modelName = model) }
         viewModelScope.launch { settingsDataStore.updateModelName(model) }
     }
-    fun updateSystemPrompt(prompt: String) {
-        _settings.update { it.copy(systemPrompt = prompt) }
-        viewModelScope.launch { settingsDataStore.updateSystemPrompt(prompt) }
-    }
     fun updateTemperature(temp: Double) {
         _settings.update { it.copy(temperature = temp) }
         viewModelScope.launch { settingsDataStore.updateTemperature(temp) }
@@ -221,6 +218,9 @@ class ChatViewModel @Inject constructor(
         // 统一时间戳：内存与数据库使用同一个值，避免 UI 与 Flow 竞态导致重复显示
         val userTimestamp = System.currentTimeMillis()
         val userMsg = ChatMessage(role = "user", content = content, timestamp = userTimestamp)
+        Log.d("Hsiaopu-Strict", "=== [用户发出] timestamp=$userTimestamp, convId=$convId ===")
+        Log.d("Hsiaopu-Strict", ">>>$content<<<")
+        Log.d("Hsiaopu-Strict", "=== [用户发出结束] ===")
         _uiState.update { it.copy(
             messages = it.messages + userMsg,
             isLoading = true,
@@ -240,7 +240,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 // 1. 构建注入了支持 Shizuku 工具调用指令的 System Prompt
-                val systemPrompt = buildToolSystemPrompt(settings.systemPrompt)
+                val systemPrompt = buildToolSystemPrompt()
                 // 给 AI 的上下文剥离调试流程块，只保留正式回复，防止 AI 模仿【调试流程│开始】等标记
                 val messages = buildList {
                     add(ChatMessage(role = "system", content = systemPrompt))
@@ -259,6 +259,9 @@ class ChatViewModel @Inject constructor(
                 //     _uiState.update { it.copy(streamingContent = fullContent) }
                 // }
                 val fullContent = chatClient.sendMessageSafe(messages, settings)
+                Log.d("Hsiaopu-Strict", "=== [AI第一轮回复] ===")
+                Log.d("Hsiaopu-Strict", ">>>$fullContent<<<")
+                Log.d("Hsiaopu-Strict", "=== [AI第一轮回复结束] ===")
 
                 // 3. 解析并执行工具指令
                 var firstReply = fullContent
@@ -268,8 +271,10 @@ class ChatViewModel @Inject constructor(
                 processedContent = firstParsed.first
                 toolResults = firstParsed.second
 
-                // 无命令标记，但内容像是"编造/模仿执行结果"（✓✗⚠️ 系统专用符号、或未执行就下"已成功/已关闭"等结论）→ 纠错重试一次
-                if (toolResults.isEmpty() && looksLikeFabricatedResult(firstReply)) {
+                // 无命令标记时纠错重试一次，触发条件：
+                // ① 内容像是"编造/模仿执行结果"（✓✗⚠️ 系统专用符号、或未执行就下"已成功/已关闭"等结论）；
+                // ② 用户明显是在要求操作/查询设备（打开/关闭/查看等），AI 第一轮却只回了客套话。
+                if (toolResults.isEmpty() && (looksLikeFabricatedResult(firstReply) || looksLikeDeviceRequest(content))) {
                     val retryPrompt = systemPrompt +
                         "\n\n纠正：你上一次回复没有输出 [SHELL:] 调用标记，而是直接写了总结性话语（如\"已成功\"\"已关闭\"）。请重新回复：如果用户要求操作或查询设备，你的回复必须只包含 [SHELL:命令]，严禁输出任何总结、确认语，也严禁输出 ✓ ✗ ⚠️ 开头的文本；如果确实不需要执行命令，请直接用中文正常回答。"
                     val retryMessages = buildList {
@@ -277,6 +282,9 @@ class ChatViewModel @Inject constructor(
                         addAll(messages.drop(1))
                     }
                     firstReply = chatClient.sendMessageSafe(retryMessages, settings)
+                    Log.d("Hsiaopu-Strict", "=== [AI纠错重试回复] ===")
+                    Log.d("Hsiaopu-Strict", ">>>$firstReply<<<")
+                    Log.d("Hsiaopu-Strict", "=== [AI纠错重试回复结束] ===")
                     val retryParsed = executeToolsInContent(firstReply)
                     processedContent = retryParsed.first
                     toolResults = retryParsed.second
@@ -310,17 +318,27 @@ class ChatViewModel @Inject constructor(
                     finalContent = wrapDebugFlow(reply, flowBody)
                 } else {
                     // ===== 无命令执行 → 直接返回 AI 原文，不再让 AI 总结 =====
+                    // 若用户是在要求操作/查询设备，但 AI 没输出命令标记，就在可见回复上明确提示未执行，
+                    // 避免"马上为您打开"这类客套话被当成真的执行了
+                    val noMarkerReply = if (looksLikeDeviceRequest(content)) {
+                        "${firstReply.trim()}\n\nℹ️ 系统未检测到命令标记，未执行任何设备操作，请重试。"
+                    } else {
+                        firstReply
+                    }
                     val flowBody = buildString {
                         appendLine("① 第一轮 AI 回复：")
                         appendLine(firstReply.trim())
                         appendLine()
                         appendLine("ℹ️ 未检测到命令标记，系统未执行任何命令")
                     }
-                    finalContent = wrapDebugFlow(processedContent, flowBody)
+                    finalContent = wrapDebugFlow(noMarkerReply, flowBody)
                 }
 
                 // 5. 持久化最终结果（统一时间戳，与内存消息一致）
                 val assistantTimestamp = System.currentTimeMillis()
+                Log.d("Hsiaopu-Strict", "=== [最终AI回复] timestamp=$assistantTimestamp ===")
+                Log.d("Hsiaopu-Strict", ">>>$finalContent<<<")
+                Log.d("Hsiaopu-Strict", "=== [最终AI回复结束] ===")
                 repository.insertMessage(MessageEntity(
                     conversationId = convId,
                     role = "assistant",
@@ -357,10 +375,7 @@ class ChatViewModel @Inject constructor(
      * 构建 System Prompt：技能说明由 Skill 注册表动态生成（见 ToolSkill.kt）。
      * 给 AI 加新技能时无需修改这里的文案，只需在注册表加一行。
      */
-    private fun buildToolSystemPrompt(userPrompt: String): String {
-        val tools = ToolSkillRegistry.buildToolPrompt()
-        return if (userPrompt.isNotBlank()) "$userPrompt\n\n$tools" else tools
-    }
+    private fun buildToolSystemPrompt(): String = ToolSkillRegistry.buildToolPrompt()
 
     /** 判断 AI 首轮回复是否在"编造/模仿执行结果"：
      * - ✓/✗/⚠️ 是系统专用的已核实结果符号，AI 不应输出；
@@ -371,6 +386,13 @@ class ChatViewModel @Inject constructor(
         if (t.isEmpty()) return false
         return t.contains("✓") || t.contains("✗") || t.contains("⚠️") ||
             Regex("(已成功|执行成功|已关闭|已开启|已打开|已完成|已连接|已断开)").containsMatchIn(t)
+    }
+
+    /** 判断用户消息是否是在"要求操作/查询设备"（此时 AI 第一轮必须输出 [SHELL:] 命令标记，否则纠错重试） */
+    private fun looksLikeDeviceRequest(text: String): Boolean {
+        val t = text.lowercase()
+        if (t.isBlank()) return false
+        return Regex("(打开|关闭|关掉|开启|查看|查询|查一下|调整|调高|调低|调大|调小|设置|切换|启动|停止|连接|断开|重启|关机|音量|亮度|蓝牙|wifi|无线|电量)").containsMatchIn(t)
     }
 
     /** 调试流程块的开始/结束标记，UI 端据此渲染灰色小字 */
@@ -456,9 +478,16 @@ class ChatViewModel @Inject constructor(
         var summary = ""
         try {
             summary = chatClient.sendMessageSafe(secondMessages, settings)
+            Log.d("Hsiaopu-Strict", "=== [AI第二轮总结回复] ===")
+            Log.d("Hsiaopu-Strict", ">>>$summary<<<")
+            Log.d("Hsiaopu-Strict", "=== [AI第二轮总结回复结束] ===")
         } catch (_: Exception) {
             // 次轮网络等异常时降级，展示真实执行结果而不是 AI 编造内容
+            Log.e("Hsiaopu-Strict", "AI 第二轮总结请求失败，降级展示真实执行结果")
         }
+        Log.d("Hsiaopu-Strict", "=== [系统真实执行结果(传给AI总结)] ===")
+        Log.d("Hsiaopu-Strict", ">>>$toolResultText<<<")
+        Log.d("Hsiaopu-Strict", "=== [系统真实执行结果结束] ===")
         return summary to toolResultText
     }
 

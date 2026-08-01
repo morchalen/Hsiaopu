@@ -89,6 +89,14 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
     var voskModelState by remember { mutableStateOf<VoskSpeechHelper.State?>(null) }
     var voiceRequestPending by remember { mutableStateOf(false) } // 用户按了录音键但模型未就绪
 
+    // 持续对话模式（点击麦克风开启/结束）：
+    // 说话后停顿 2 秒自动发送；AI 执行完并朗读完后自动重新聆听；再点一次麦克风结束
+    var isContinuousMode by remember { mutableStateOf(false) }
+    var isWaitingExecution by remember { mutableStateOf(false) } // 已发送，等待 AI 执行 + 朗读
+    var continuousText by remember { mutableStateOf("") }        // 已定格（onResult）的累计识别文本
+    var lastSpeechAt by remember { mutableStateOf(0L) }          // 最后一次识别到语音的时间
+    var waitStartAt by remember { mutableStateOf(0L) }           // 进入"等待执行"的时间（兜底防卡死）
+
     // 录音权限请求（必须放在 DisposableEffect 之前，因为 onStateChanged 回调中引用它）
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -103,7 +111,10 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
                     voskHelper.startRecording()
                     isVoiceRecording = true
                 }
-                isVoiceOverlayVisible = true
+                // 持续对话模式不弹全屏弹窗
+                if (!isContinuousMode) {
+                    isVoiceOverlayVisible = true
+                }
                 isSlidingToCancel = false
             } else {
                 voiceRequestPending = false
@@ -133,18 +144,31 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
         voskHelper.onResult = { text ->
             if (text.isNotBlank()) {
                 Log.d(TAG, "Vosk 识别结果: '$text'")
-                inputText = text
-                if (pendingVoiceSend) {
-                    pendingVoiceSend = false
-                    Log.d(TAG, "语音识别结果就绪，自动发送")
-                    viewModel.sendMessage(text)
-                    inputText = ""
+                if (isContinuousMode) {
+                    // 持续对话模式：累加已定格（onResult）的识别文本，不主动发送
+                    continuousText = if (continuousText.isBlank()) text else "$continuousText$text"
+                    inputText = continuousText
+                    lastSpeechAt = System.currentTimeMillis()
+                } else {
+                    inputText = text
+                    if (pendingVoiceSend) {
+                        pendingVoiceSend = false
+                        Log.d(TAG, "语音识别结果就绪，自动发送")
+                        viewModel.sendMessage(text)
+                        inputText = ""
+                    }
                 }
             }
         }
         voskHelper.onPartialResult = { text ->
             if (text.isNotBlank()) {
-                inputText = text
+                if (isContinuousMode) {
+                    // 持续对话模式：实时显示"已定格文本 + 当前半截识别"
+                    inputText = if (continuousText.isBlank()) text else "$continuousText$text"
+                    lastSpeechAt = System.currentTimeMillis()
+                } else {
+                    inputText = text
+                }
             }
         }
         voskHelper.onStateChanged = { state ->
@@ -153,7 +177,8 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
             // 模型就绪后，如果用户之前按过录音键，自动开始录音
             if (state == VoskSpeechHelper.State.MODEL_READY && voiceRequestPending) {
                 voiceRequestPending = false
-                isVoiceOverlayVisible = true
+                // 持续对话模式不弹全屏弹窗
+                if (!isContinuousMode) isVoiceOverlayVisible = true
                 if (voskHelper.hasPermission()) {
                     voskHelper.startRecording()
                     isVoiceRecording = true
@@ -168,6 +193,12 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
                 isVoiceRecording = false
                 isVoiceOverlayVisible = false
                 isSlidingToCancel = false
+                if (isContinuousMode) {
+                    isContinuousMode = false
+                    isWaitingExecution = false
+                    continuousText = ""
+                    waitStartAt = 0L
+                }
                 Toast.makeText(context, "语音识别出错，请重试", Toast.LENGTH_SHORT).show()
             }
         }
@@ -177,6 +208,119 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
             voskHelper.onStateChanged = null
             voskHelper.release()
         }
+    }
+
+    // ========== 持续对话模式：开启/结束 ==========
+    /** 结束持续对话模式；showToast 为 true 时提示用户 */
+    val stopContinuousMode: (Boolean) -> Unit = { showToast ->
+        isContinuousMode = false
+        isWaitingExecution = false
+        continuousText = ""
+        waitStartAt = 0L
+        isVoiceOverlayVisible = false
+        isSlidingToCancel = false
+        pendingVoiceSend = false
+        if (voskHelper.isRecording) voskHelper.stopRecording()
+        isVoiceRecording = false
+        if (showToast) Toast.makeText(context, "已结束持续对话模式", Toast.LENGTH_SHORT).show()
+    }
+
+    /** 开启持续对话模式：保持录音，停顿2秒自动发送；AI执行+朗读完后自动恢复聆听 */
+    val enterContinuousMode: () -> Unit = lambda@{
+        if (isContinuousMode) return@lambda
+        pendingVoiceSend = false
+        isContinuousMode = true
+        isWaitingExecution = false
+        continuousText = ""
+        waitStartAt = 0L
+        lastSpeechAt = System.currentTimeMillis()
+        isVoiceOverlayVisible = false   // 持续对话不使用全屏录音弹窗
+        isSlidingToCancel = false
+        // 长按路径的 onVoiceStart 已开始录音则保持；否则确保开始
+        if (voskHelper.isModelReady && voskHelper.hasPermission() && !voskHelper.isRecording) {
+            voskHelper.startRecording()
+            isVoiceRecording = true
+        }
+        Toast.makeText(
+            context,
+            "持续对话已开启：说话后停顿2秒自动发送，AI回复朗读完自动继续聆听；再点麦克风结束",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
+    // 持续对话主循环：监听静音（2秒）触发发送；同时做麦克风看门狗与等待超时兜底
+    LaunchedEffect(isContinuousMode) {
+        while (isContinuousMode) {
+            delay(500)
+            val now = System.currentTimeMillis()
+            // 等待执行期间不发送、不重启麦克风
+            if (isWaitingExecution) {
+                // 兜底：等待超时（如 TTS 引擎不可用导致朗读永远不结束）→ 恢复聆听，避免卡死
+                if (now - waitStartAt > 20_000) {
+                    isWaitingExecution = false
+                    continuousText = ""
+                    waitStartAt = 0L
+                    lastSpeechAt = now
+                    if (voskHelper.isModelReady && voskHelper.hasPermission() && !voskHelper.isRecording) {
+                        voskHelper.startRecording()
+                        isVoiceRecording = true
+                    }
+                }
+                continue
+            }
+            // 麦克风看门狗：应当录音中但实际停了（如 Vosk 超时/意外停止）→ 自动重启
+            if (isVoiceRecording && !voskHelper.isRecording) {
+                if (voskHelper.isModelReady && voskHelper.hasPermission()) {
+                    voskHelper.startRecording()
+                }
+            }
+            // 2 秒无语音且已有有效文字 → 立刻发送，但不结束录音会话
+            if (continuousText.isNotBlank() && now - lastSpeechAt >= 2000) {
+                val toSend = continuousText.trim()
+                continuousText = ""
+                inputText = ""
+                isWaitingExecution = true
+                waitStartAt = now
+                lastSpeechAt = now
+                // 停止麦克风，避免录到 AI 朗读声；执行完后再自动恢复
+                voskHelper.stopRecording()
+                isVoiceRecording = false
+                Log.d(TAG, "持续对话：2秒静音，自动发送 '$toSend'")
+                viewModel.sendMessage(toSend)
+            }
+        }
+    }
+
+    // AI 执行完毕 → 自动恢复聆听（继续持续对话）。
+    // 注意：部分 TTS 引擎（如 OPPO）首次朗读可能被静默丢弃——speak() 之后 onStart/onDone 都不触发，
+    // speakingMessageId 一直挂起。因此不再死等 speakingMessageId 归零，而是以"TTS 是否真的在播放"为准：
+    // 朗读请求发出后等待 3 秒仍未开播，即视为朗读未进行，直接恢复聆听。
+    LaunchedEffect(isContinuousMode, isWaitingExecution, uiState.isLoading, speakingMessageId) {
+        if (!isContinuousMode || !isWaitingExecution) return@LaunchedEffect
+        Log.d(TAG, "持续对话[恢复聆听检查]: isLoading=${uiState.isLoading}, ttsManager.isSpeaking=${ttsManager.isSpeaking}, speakingMessageId=$speakingMessageId")
+        if (uiState.isLoading) return@LaunchedEffect
+        if (ttsManager.isSpeaking) {
+            Log.d(TAG, "持续对话[恢复聆听检查]: TTS 正在朗读中，等待朗读完成...")
+            return@LaunchedEffect
+        }
+        // 已请求朗读但一直未开播（首次朗读被引擎丢弃）→ 等 3 秒后按"朗读完成"处理；
+        // 未请求朗读 → 短暂等待，避开"刚回复完、即将开读"的间隙
+        val waitMs = if (speakingMessageId != null) 3000L else 600L
+        Log.d(TAG, "持续对话[恢复聆听检查]: 等待 ${waitMs}ms 后再次确认（speakingMessageId=$speakingMessageId）")
+        delay(waitMs)
+        if (!isContinuousMode || !isWaitingExecution) return@LaunchedEffect
+        Log.d(TAG, "持续对话[恢复聆听检查]: 等待后 isLoading=${uiState.isLoading}, ttsManager.isSpeaking=${ttsManager.isSpeaking}")
+        if (uiState.isLoading || ttsManager.isSpeaking) return@LaunchedEffect
+        // 确认就绪：恢复录音，让用户继续说话
+        isWaitingExecution = false
+        continuousText = ""
+        waitStartAt = 0L
+        lastSpeechAt = System.currentTimeMillis()
+        if (voskHelper.isModelReady && voskHelper.hasPermission() && !voskHelper.isRecording) {
+            voskHelper.startRecording()
+            isVoiceRecording = true
+        }
+        Log.d(TAG, "持续对话：AI执行完毕，已恢复聆听")
     }
 
     // 初始化 Vosk 模型
@@ -228,6 +372,7 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
             wasLoading = false
             ttsManager.stop()
             playedMessageIds.value = emptySet()
+            stopContinuousMode(false)  // 切换对话时静默结束持续对话模式
             return@LaunchedEffect
         }
 
@@ -275,16 +420,23 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
             return@LaunchedEffect
         }
         unspoken.forEachIndexed { i, msg ->
-            Log.d("Hsiaopu-AutoPlay", "  [${i}] timestamp=${msg.timestamp}, content=${msg.content.take(30)}")
+            Log.d("Hsiaopu-AutoPlay", "  [${i}] timestamp=${msg.timestamp}, 原始内容(全文,严格打印):")
+            Log.d("Hsiaopu-AutoPlay", "  >>>${msg.content}<<<")
             // 剥离调试流程块，只朗读正常回复内容
             val speakText = ChatViewModel.stripDebugFlow(msg.content)
+            Log.d("Hsiaopu-AutoPlay", "  [${i}] 剥离调试块后朗读文本(全文,严格打印):")
+            Log.d("Hsiaopu-AutoPlay", "  >>>$speakText<<<")
+            Log.d("Hsiaopu-AutoPlay", "  [${i}] 朗读前 ttsManager.isSpeaking=${ttsManager.isSpeaking}, speakingMessageId=$speakingMessageId")
             if (i == 0) {
                 ttsManager.speak(speakText)
                 speakingMessageId = msg.timestamp.toString()  // 同步UI状态
+                Log.d("Hsiaopu-AutoPlay", "  [${i}] 已调用 speak()，speakingMessageId 设为 $speakingMessageId")
             } else {
                 ttsManager.speakQueued(speakText)
+                Log.d("Hsiaopu-AutoPlay", "  [${i}] 已调用 speakQueued()")
             }
             playedMessageIds.value = playedMessageIds.value + msg.timestamp
+            Log.d("Hsiaopu-AutoPlay", "  [${i}] 已加入已播放集合，已播放数=${playedMessageIds.value.size}")
         }
     }
 
@@ -467,8 +619,7 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
                                         ttsManager.speak(ChatViewModel.stripDebugFlow(message.content))
                                         speakingMessageId = msgId
                                     }
-                                },
-                                onCopy = { }
+                                }
                             )
                         }
 
@@ -515,6 +666,14 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
             // }
 
             // 输入区域
+            // 持续对话模式指示条（点它即结束）
+            if (isContinuousMode) {
+                ContinuousModeIndicator(
+                    isWaitingExecution = isWaitingExecution,
+                    onExit = { stopContinuousMode(true) },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                )
+            }
             ChatInputBar(
                 inputText = inputText,
                 onInputChange = { inputText = it },
@@ -522,8 +681,12 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
                 isVoiceRecording = isVoiceRecording,
                 isVoiceOverlayVisible = isVoiceOverlayVisible,
                 isSlidingToCancel = isSlidingToCancel,
+                isContinuousMode = isContinuousMode,
+                isWaitingExecution = isWaitingExecution,
                 onSlidingToCancelChange = { isSlidingToCancel = it },
                 onVoiceStart = {
+                    // 持续对话模式中不再重复启动"即按即说"
+                    if (isContinuousMode) return@ChatInputBar
                     ttsManager.stop()
                     speakingMessageId = null
                     // 显示弹窗（准备中或录音中）
@@ -556,8 +719,12 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
                         }
                     }
                 },
+                onVoiceTap = {
+                    // 短按：切换持续对话模式
+                    if (isContinuousMode) stopContinuousMode(true) else enterContinuousMode()
+                },
                 onVoiceEnd = { isCancel ->
-                    // 关闭弹窗
+                    // 长按结束：关闭弹窗，松手发送（或取消）
                     isVoiceOverlayVisible = false
                     isSlidingToCancel = false
                     if (isVoiceRecording) {
@@ -609,8 +776,8 @@ fun HomeScreen(viewModel: ChatViewModel, isTablet: Boolean = false) {
             }
         }
 
-        // 录音弹窗覆盖层（放在最上层，确保显示）
-        if (isVoiceOverlayVisible) {
+        // 录音弹窗覆盖层（放在最上层，确保显示；持续对话模式不用全屏弹窗）
+        if (isVoiceOverlayVisible && !isContinuousMode) {
             RecordingPopup(
                 isSlidingToCancel = isSlidingToCancel,
                 isModelReady = isVoiceRecording || voskHelper.isModelReady
@@ -653,11 +820,10 @@ private fun EmptyChatPlaceholder(modifier: Modifier = Modifier) {
  * - 用户消息：右对齐，带主题色背景，最大宽度 300dp
  * - AI 消息：左对齐，透明背景，撑满宽度
  * - 流式输出时：AI 消息下方显示闪烁光标
- * - 长按气泡：弹出复制菜单
+ * - 长按气泡：直接复制整条消息内容到剪贴板
  * 
  * @param message 聊天消息数据（角色、内容、时间戳）
  * @param isStreaming 是否为流式输出中（AI 正在回复）
- * @param onCopy 复制内容到剪贴板的回调
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -665,11 +831,10 @@ fun MessageBubble(
     message: ChatMessage,
     isStreaming: Boolean = false,
     isSpeaking: Boolean = false,
-    onSpeakToggle: () -> Unit = {},
-    onCopy: (() -> Unit)? = null
+    onSpeakToggle: () -> Unit = {}
 ) {
     val isUser = message.role == "user"
-    var showMenu by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     val dateFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val isDark = isSystemInDarkTheme()
     val userBubbleColor = if (isDark) UserBubbleDark else UserBubbleLight
@@ -738,7 +903,12 @@ fun MessageBubble(
                     }
                     .combinedClickable(
                         onClick = {},
-                        onLongClick = { showMenu = true; onCopy?.invoke() }  // 长按触发复制
+                        onLongClick = {
+                            // 长按直接复制整条消息内容，不弹菜单
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("消息内容", message.content))
+                            Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                        }
                     )
             ) {
                 if (isUser) {
@@ -789,18 +959,6 @@ fun MessageBubble(
                         }
                     }
                 }
-            }
-
-            // 长按弹出的复制菜单
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false }
-            ) {
-                DropdownMenuItem(
-                    text = { Text("Copy") },
-                    onClick = { onCopy?.invoke(); showMenu = false },
-                    leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) }
-                )
             }
         }
 
@@ -862,8 +1020,11 @@ fun ChatInputBar(
     isVoiceRecording: Boolean = false,
     isVoiceOverlayVisible: Boolean = false,
     isSlidingToCancel: Boolean = false,
+    isContinuousMode: Boolean = false,
+    isWaitingExecution: Boolean = false,
     onSlidingToCancelChange: (Boolean) -> Unit = {},
     onVoiceStart: () -> Unit = {},
+    onVoiceTap: () -> Unit = {},
     onVoiceEnd: (isCancel: Boolean) -> Unit = {},
     onSend: () -> Unit
 ) {
@@ -878,6 +1039,7 @@ fun ChatInputBar(
 
     val micTint by animateColorAsState(
         targetValue = when {
+            isContinuousMode -> MaterialTheme.colorScheme.primary
             isSlidingToCancel -> MaterialTheme.colorScheme.error
             isVoiceOverlayVisible -> MaterialTheme.colorScheme.primary
             isVoicePressed -> MaterialTheme.colorScheme.primary
@@ -888,6 +1050,7 @@ fun ChatInputBar(
 
     val micBg by animateColorAsState(
         targetValue = when {
+            isContinuousMode -> MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
             isVoicePressed -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
             else -> Color.Transparent
         },
@@ -905,6 +1068,81 @@ fun ChatInputBar(
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.Bottom
         ) {
+            // 语音按钮（位于输入框左侧，更宽）：
+            // - 短按（快速点击）：切换"持续对话模式"（说话停顿2秒自动发送，AI朗读完自动继续聆听）
+            // - 长按：按住即说，松手即发送（上滑取消）
+            Box(
+                modifier = Modifier
+                    .width(96.dp)
+                    .height(48.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(micBg)
+                    .pointerInput(Unit) {
+                        val density = this.density
+                        val cancelThresholdPx = with(density) { 80.dp.toPx() }
+                        val tapThresholdMs = 300L  // 小于该时长判定为"点击"
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val downTime = down.uptimeMillis
+                            isVoicePressed = true
+                            onVoiceStart()
+                            var canceled = false
+                            var releaseTime = downTime
+                            try {
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull() ?: break
+                                    if (!change.pressed) {
+                                        releaseTime = change.uptimeMillis
+                                        break
+                                    }
+                                    val slideUpPx = -change.position.y
+                                    if (slideUpPx > cancelThresholdPx) {
+                                        if (!canceled) {
+                                            canceled = true
+                                            onSlidingToCancelChange(true)
+                                        }
+                                    } else {
+                                        if (canceled) {
+                                            canceled = false
+                                            onSlidingToCancelChange(false)
+                                        }
+                                    }
+                                } while (true)
+                            } catch (_: kotlinx.coroutines.CancellationException) {
+                            } finally {
+                                isVoicePressed = false
+                                when {
+                                    canceled -> onVoiceEnd(true)          // 上滑取消
+                                    releaseTime - downTime <= tapThresholdMs -> onVoiceTap()  // 短按 → 切换持续对话模式
+                                    else -> onVoiceEnd(false)             // 长按 → 松手发送
+                                }
+                            }
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        Icons.Default.Mic,
+                        contentDescription = if (isContinuousMode) "语音输入（持续对话中，点击结束）" else "语音输入",
+                        tint = micTint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "长按/短按",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = micTint
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(6.dp))
+
             // 输入框
             OutlinedTextField(
                 value = inputText,
@@ -927,57 +1165,6 @@ fun ChatInputBar(
                 ),
                 shape = RoundedCornerShape(20.dp)
             )
-
-            Spacer(modifier = Modifier.width(4.dp))
-
-            // 语音按钮（参考项目方案：触摸即开始录音，上滑取消）
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(micBg)
-                    .pointerInput(Unit) {
-                        val density = this.density
-                        val cancelThresholdPx = with(density) { 80.dp.toPx() }
-                        awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false)
-                            isVoicePressed = true
-                            onVoiceStart()
-                            var canceled = false
-                            try {
-                                do {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull() ?: break
-                                    if (!change.pressed) break
-                                    val slideUpPx = -change.position.y
-                                    if (slideUpPx > cancelThresholdPx) {
-                                        if (!canceled) {
-                                            canceled = true
-                                            onSlidingToCancelChange(true)
-                                        }
-                                    } else {
-                                        if (canceled) {
-                                            canceled = false
-                                            onSlidingToCancelChange(false)
-                                        }
-                                    }
-                                } while (true)
-                            } catch (_: kotlinx.coroutines.CancellationException) {
-                            } finally {
-                                isVoicePressed = false
-                                onVoiceEnd(canceled)
-                            }
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Default.Mic,
-                    contentDescription = "语音输入",
-                    tint = micTint,
-                    modifier = Modifier.size(30.dp)
-                )
-            }
 
             Spacer(modifier = Modifier.width(4.dp))
 
@@ -1018,6 +1205,76 @@ fun ChatInputBar(
         if (pressed) {
             delay(100)
             pressed = false
+        }
+    }
+}
+
+// ==================== 持续对话模式指示条 ====================
+
+/**
+ * 持续对话模式的常驻状态指示条（位于输入框上方）：
+ * - 聆听中：麦克风图标呼吸闪烁 + "说话后停顿2秒自动发送"
+ * - 等待执行：图标变暗 + "已发送，AI 执行中，朗读完自动继续…"
+ * 点击指示条可立即结束持续对话模式。
+ */
+@Composable
+private fun ContinuousModeIndicator(
+    isWaitingExecution: Boolean,
+    onExit: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "continuous_pulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "continuous_pulse_alpha"
+    )
+
+    Surface(
+        color = if (isWaitingExecution)
+            MaterialTheme.colorScheme.surfaceVariant
+        else
+            MaterialTheme.colorScheme.primaryContainer,
+        shape = RoundedCornerShape(50),
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onExit
+            )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            // 呼吸麦克风图标
+            Box(
+                modifier = Modifier.size(10.dp).clip(CircleShape).background(
+                    if (isWaitingExecution)
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    else
+                        MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)
+                )
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = if (isWaitingExecution)
+                    "已发送 · AI 执行中，朗读完自动继续…"
+                else
+                    "持续对话中 · 说话后停顿 2 秒自动发送",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "结束持续对话",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }

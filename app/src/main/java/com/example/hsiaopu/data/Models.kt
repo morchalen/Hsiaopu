@@ -10,7 +10,6 @@ data class AppSettings(
     val apiKey: String = "",  // AI API 密钥
     val apiEndpoint: String = "https://api.deepseek.com/v1/chat/completions",  // API 请求地址
     val modelName: String = "deepseek-chat",  // 使用的模型名称
-    val systemPrompt: String = "你是一个智能AI助手，请用简洁、专业的方式回答用户的问题。",  // 系统提示词
     val temperature: Double = 0.7,  // 温度参数（0-1，越高越随机）
     val maxTokens: Int = 2048  // 最大生成 Token 数
 )

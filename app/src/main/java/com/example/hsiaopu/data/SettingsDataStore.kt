@@ -45,7 +45,6 @@ class SettingsDataStore @Inject constructor(
         private val KEY_API_KEY = stringPreferencesKey("api_key")               // API 密钥
         private val KEY_API_ENDPOINT = stringPreferencesKey("api_endpoint")     // API 请求地址
         private val KEY_MODEL_NAME = stringPreferencesKey("model_name")         // 使用的模型名称
-        private val KEY_SYSTEM_PROMPT = stringPreferencesKey("system_prompt")   // 系统提示词
         private val KEY_TEMPERATURE = doublePreferencesKey("temperature")       // 随机性
         private val KEY_MAX_TOKENS = intPreferencesKey("max_tokens")            // 最大 Token 数
 
@@ -70,7 +69,6 @@ class SettingsDataStore @Inject constructor(
             apiKey = prefs[KEY_API_KEY] ?: "",                              // 默认 API Key
             apiEndpoint = prefs[KEY_API_ENDPOINT] ?: "https://api.deepseek.com/v1/chat/completions",        // 默认 DeepSeek API
             modelName = prefs[KEY_MODEL_NAME] ?: "deepseek-chat",                                           // 默认模型
-            systemPrompt = prefs[KEY_SYSTEM_PROMPT] ?: "你是一个智能AI助手，请用简洁、专业的方式回答用户的问题。",  // 默认提示词
             temperature = prefs[KEY_TEMPERATURE] ?: 0.7,                                                    // 默认温度 0.7
             maxTokens = prefs[KEY_MAX_TOKENS] ?: 2048                                                       // 默认最大 Token 数
         )
@@ -104,11 +102,6 @@ class SettingsDataStore @Inject constructor(
     /** 更新 AI 模型名称 */
     suspend fun updateModelName(model: String) {
         context.dataStore.edit { it[KEY_MODEL_NAME] = model }
-    }
-
-    /** 更新系统提示词 */
-    suspend fun updateSystemPrompt(prompt: String) {
-        context.dataStore.edit { it[KEY_SYSTEM_PROMPT] = prompt }
     }
 
     /** 更新温度参数（0.0 ~ 2.0，越高回答越随机） */

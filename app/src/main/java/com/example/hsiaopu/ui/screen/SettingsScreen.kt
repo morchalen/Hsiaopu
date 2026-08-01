@@ -151,7 +151,6 @@ fun SettingsScreen(viewModel: ChatViewModel) {
                         Icon(Icons.Default.Refresh, contentDescription = "刷新模型列表", modifier = Modifier.size(20.dp))
                     }
                 }
-                SettingsTextField(stringResource(R.string.settings_system_prompt), settings.systemPrompt, minLines = 2) { viewModel.updateSystemPrompt(it) }
             }
             //第二行: ── 参数设置 ──
             SettingsCard(title = stringResource(R.string.settings_parameters)) {
